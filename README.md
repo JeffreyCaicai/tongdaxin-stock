@@ -11,6 +11,7 @@
 - 已建立 SQLite schema、持仓 CRUD、目标池 CRUD 和基础信号评估入口。
 - 已支持持仓/目标池 CSV 导入导出、信号历史查询和工作台批量行动信号生成。
 - 数据源已具备 provider 抽象和 mock PoC，可拉取单股 quote/K 线并缓存到 SQLite；后续接入 `eltdx`、AkShare 或通达信 Token 路线。
+- 可选 AkShare provider 已接入；安装 `akshare` 后可用 `source=akshare` 拉真实 A 股 quote/K 线。无依赖环境默认使用 `source=mock`。
 
 ## 目录结构
 

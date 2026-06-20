@@ -38,4 +38,8 @@ Implemented endpoints:
 - `GET /market/fetch-logs` lists success/error records for provider calls.
 - `POST /workbench/actions/from-market` fetches quotes for all holdings and generates action signals from cached snapshot IDs.
 
+Optional provider:
+
+- `source=akshare` uses AkShare when the package is installed locally. If it is not installed, the API returns a clear provider error and the app can continue using `source=mock`.
+
 Next provider target: `eltdx`, because it keeps the MVP close to the Tongdaxin ecosystem while avoiding official token dependencies.

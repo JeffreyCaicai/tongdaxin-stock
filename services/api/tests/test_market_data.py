@@ -32,6 +32,12 @@ class MarketDataProviderTests(unittest.TestCase):
         with self.assertRaises(MarketDataError):
             get_market_data_provider("missing")
 
+    def test_akshare_provider_reports_missing_optional_dependency(self) -> None:
+        provider = get_market_data_provider("akshare")
+
+        with self.assertRaisesRegex(MarketDataError, "AkShare is not installed"):
+            provider.fetch_quote("600519")
+
 
 if __name__ == "__main__":
     unittest.main()
