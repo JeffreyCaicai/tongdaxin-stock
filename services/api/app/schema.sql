@@ -95,3 +95,30 @@ CREATE TABLE IF NOT EXISTS signals (
 );
 
 CREATE INDEX IF NOT EXISTS idx_signals_symbol_created ON signals(symbol, created_at);
+
+CREATE TABLE IF NOT EXISTS analysis_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_type TEXT NOT NULL,
+  symbol TEXT,
+  payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_reports_type_created
+ON analysis_reports(report_type, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_reports_symbol_created
+ON analysis_reports(symbol, created_at);
+
+CREATE TABLE IF NOT EXISTS backtests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  source TEXT NOT NULL,
+  strategy_name TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_backtests_symbol_created
+ON backtests(symbol, created_at);

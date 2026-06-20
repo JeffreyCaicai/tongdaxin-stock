@@ -6,6 +6,8 @@ from pathlib import Path
 
 from services.api.app.database import connect, init_db
 from services.api.app.repository import (
+    create_analysis_report,
+    create_backtest,
     create_holding,
     create_market_fetch_log,
     create_market_snapshot,
@@ -14,6 +16,8 @@ from services.api.app.repository import (
     delete_holding,
     get_holding,
     list_holdings,
+    list_analysis_reports,
+    list_backtests,
     list_market_fetch_logs,
     list_market_klines,
     list_market_snapshots,
@@ -179,6 +183,40 @@ class RepositoryTests(unittest.TestCase):
 
         self.assertEqual(len(saved), 2)
         self.assertEqual(saved[-1]["close"], 10.8)
+
+    def test_analysis_report_is_persisted(self) -> None:
+        report = create_analysis_report(
+            self.connection,
+            report_type="daily_review",
+            symbol=None,
+            payload={"summary": "Reviewed."},
+        )
+
+        saved = list_analysis_reports(self.connection, report_type="daily_review")
+
+        self.assertEqual(report["report_type"], "daily_review")
+        self.assertEqual(len(saved), 1)
+        self.assertIn("Reviewed", saved[0]["payload_json"])
+
+    def test_backtest_is_persisted(self) -> None:
+        backtest = create_backtest(
+            self.connection,
+            symbol="600519",
+            source="mock",
+            strategy_name="ma_volume_trend_v1",
+            config={"limit": 120},
+            result={"metrics": {"win_rate": 0.5}},
+        )
+
+        saved = list_backtests(
+            self.connection,
+            symbol="600519",
+            strategy_name="ma_volume_trend_v1",
+        )
+
+        self.assertEqual(backtest["symbol"], "600519")
+        self.assertEqual(len(saved), 1)
+        self.assertIn("win_rate", saved[0]["result_json"])
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import sqlite3
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Response, status
 
+from .backtest import run_ma_volume_backtest, review_signal_outcomes
 from .csv_io import (
     HOLDING_CSV_FIELDS,
     WATCHLIST_CSV_FIELDS,
@@ -12,8 +13,11 @@ from .csv_io import (
     rows_to_csv,
 )
 from .database import get_db, init_db
+from .indicators import calculate_indicator_snapshot
 from .market_data import MarketDataError, get_market_data_provider
 from .repository import (
+    create_analysis_report,
+    create_backtest,
     create_holding,
     create_market_fetch_log,
     create_market_snapshot,
@@ -22,8 +26,11 @@ from .repository import (
     delete_holding,
     delete_watchlist_item,
     get_holding,
+    get_holding_by_symbol,
     get_watchlist_item,
     list_holdings,
+    list_analysis_reports,
+    list_backtests,
     list_market_fetch_logs,
     list_market_klines,
     list_market_snapshots,
@@ -35,15 +42,25 @@ from .repository import (
     upsert_market_klines,
     utc_now,
 )
+from .reports import (
+    generate_daily_review,
+    generate_stock_report,
+    generate_trading_plan,
+)
 from .schemas import (
+    BacktestOut,
+    BacktestRequest,
     HoldingCreate,
     HoldingOut,
     HoldingUpdate,
+    IndicatorSnapshotOut,
     MarketFetchLogOut,
     MarketKlineOut,
     MarketQuoteOut,
+    ReportOut,
     SignalEvaluateRequest,
     SignalOut,
+    SignalReviewOut,
     WatchlistCreate,
     WatchlistOut,
     WatchlistUpdate,
@@ -108,6 +125,84 @@ def _save_signal(db: sqlite3.Connection, signal: dict) -> dict:
     return _signal_row_to_output(saved)
 
 
+def _report_row_to_output(row: dict) -> dict:
+    return {
+        "id": row["id"],
+        "report_type": row["report_type"],
+        "symbol": row["symbol"],
+        "created_at": row["created_at"],
+        "payload": json.loads(row["payload_json"]),
+    }
+
+
+def _save_report(
+    db: sqlite3.Connection,
+    *,
+    report: dict,
+    persist: bool,
+) -> dict:
+    if not persist:
+        return {
+            "id": None,
+            "report_type": report["report_type"],
+            "symbol": report.get("symbol"),
+            "created_at": report.get("generated_at"),
+            "payload": report,
+        }
+    saved = create_analysis_report(
+        db,
+        report_type=report["report_type"],
+        symbol=report.get("symbol"),
+        payload=report,
+        created_at=report.get("generated_at"),
+    )
+    return _report_row_to_output(saved)
+
+
+def _backtest_row_to_output(row: dict) -> dict:
+    return {
+        "id": row["id"],
+        "symbol": row["symbol"],
+        "source": row["source"],
+        "strategy_name": row["strategy_name"],
+        "created_at": row["created_at"],
+        "config": json.loads(row["config_json"]),
+        "result": json.loads(row["result_json"]),
+    }
+
+
+def _save_backtest(
+    db: sqlite3.Connection,
+    *,
+    symbol: str,
+    source: str,
+    strategy_name: str,
+    config: dict,
+    result: dict,
+    persist: bool,
+) -> dict:
+    if not persist:
+        return {
+            "id": None,
+            "symbol": normalize_symbol(symbol),
+            "source": source,
+            "strategy_name": strategy_name,
+            "created_at": result.get("generated_at"),
+            "config": config,
+            "result": result,
+        }
+    saved = create_backtest(
+        db,
+        symbol=symbol,
+        source=source,
+        strategy_name=strategy_name,
+        config=config,
+        result=result,
+        created_at=result.get("generated_at"),
+    )
+    return _backtest_row_to_output(saved)
+
+
 def _quote_payload_to_output(snapshot: dict, payload: dict) -> dict:
     return {
         "snapshot_id": snapshot["id"],
@@ -164,6 +259,100 @@ def _fetch_quote_and_cache(
             message=str(exc),
         )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+def _fetch_kline_and_cache(
+    db: sqlite3.Connection,
+    *,
+    symbol: str,
+    source: str,
+    period: str = "daily",
+    limit: int = 120,
+) -> dict:
+    normalized_symbol = normalize_symbol(symbol)
+    try:
+        provider = get_market_data_provider(source)
+        bars = provider.fetch_kline(normalized_symbol, period=period, limit=limit)
+        cached_bars = upsert_market_klines(
+            db,
+            symbol=normalized_symbol,
+            source=provider.name,
+            period=period,
+            bars=bars,
+        )
+        create_market_fetch_log(
+            db,
+            symbol=normalized_symbol,
+            source=provider.name,
+            data_type="kline",
+            status="success",
+            message=f"Fetched {len(bars)} {period} bars.",
+        )
+        return {
+            "symbol": normalized_symbol,
+            "source": provider.name,
+            "period": period,
+            "count": len(cached_bars),
+            "bars": list(reversed(cached_bars)),
+        }
+    except MarketDataError as exc:
+        create_market_fetch_log(
+            db,
+            symbol=normalized_symbol,
+            source=source,
+            data_type="kline",
+            status="error",
+            message=str(exc),
+        )
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+def _indicator_snapshot_for_symbol(
+    db: sqlite3.Connection,
+    *,
+    symbol: str,
+    source: str,
+    period: str = "daily",
+    limit: int = 120,
+    refresh: bool = False,
+) -> dict:
+    normalized_symbol = normalize_symbol(symbol)
+    if refresh:
+        kline = _fetch_kline_and_cache(
+            db,
+            symbol=normalized_symbol,
+            source=source,
+            period=period,
+            limit=limit,
+        )
+        bars = kline["bars"]
+        actual_source = kline["source"]
+    else:
+        bars = list(reversed(list_market_klines(
+            db,
+            symbol=normalized_symbol,
+            source=source,
+            period=period,
+            limit=limit,
+        )))
+        actual_source = source
+        if not bars:
+            kline = _fetch_kline_and_cache(
+                db,
+                symbol=normalized_symbol,
+                source=source,
+                period=period,
+                limit=limit,
+            )
+            bars = kline["bars"]
+            actual_source = kline["source"]
+
+    return {
+        "symbol": normalized_symbol,
+        "source": actual_source,
+        "period": period,
+        "snapshot": calculate_indicator_snapshot(bars),
+    }
 
 
 @app.get("/holdings", response_model=list[HoldingOut])
@@ -274,6 +463,92 @@ def api_list_signals(
     ]
 
 
+@app.get("/reports", response_model=list[ReportOut])
+def api_list_reports(
+    report_type: str | None = None,
+    symbol: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: sqlite3.Connection = Depends(get_db),
+) -> list[dict]:
+    return [
+        _report_row_to_output(row)
+        for row in list_analysis_reports(
+            db,
+            report_type=report_type,
+            symbol=symbol,
+            limit=limit,
+        )
+    ]
+
+
+@app.get("/backtests", response_model=list[BacktestOut])
+def api_list_backtests(
+    symbol: str | None = None,
+    strategy_name: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: sqlite3.Connection = Depends(get_db),
+) -> list[dict]:
+    return [
+        _backtest_row_to_output(row)
+        for row in list_backtests(
+            db,
+            symbol=symbol,
+            strategy_name=strategy_name,
+            limit=limit,
+        )
+    ]
+
+
+@app.post("/backtests/{symbol}", response_model=BacktestOut)
+def api_run_backtest(
+    symbol: str,
+    payload: BacktestRequest,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    normalized_symbol = normalize_symbol(symbol)
+    kline = _fetch_kline_and_cache(
+        db,
+        symbol=normalized_symbol,
+        source=payload.source,
+        period=payload.period,
+        limit=payload.limit,
+    )
+    result = run_ma_volume_backtest(
+        symbol=normalized_symbol,
+        bars=kline["bars"],
+        initial_equity=payload.initial_equity,
+        stop_loss_pct=payload.stop_loss_pct,
+        take_profit_pct=payload.take_profit_pct,
+    )
+    config = payload.model_dump(exclude={"persist"})
+    return _save_backtest(
+        db,
+        symbol=normalized_symbol,
+        source=kline["source"],
+        strategy_name=result["strategy_name"],
+        config=config,
+        result=result,
+        persist=payload.persist,
+    )
+
+
+@app.get("/reviews/signals", response_model=SignalReviewOut)
+def api_review_signals(
+    source: str = "mock",
+    limit: int = Query(default=100, ge=1, le=500),
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    signals = [_signal_row_to_output(row) for row in list_signals(db, limit=limit)]
+    latest_prices: dict[str, float] = {}
+    for signal in signals:
+        symbol = normalize_symbol(signal["symbol"])
+        if symbol not in latest_prices:
+            quote = _fetch_quote_and_cache(db, symbol=symbol, source=source)
+            latest_prices[symbol] = quote["price"]
+    reviews = review_signal_outcomes(signals=signals, latest_prices=latest_prices)
+    return {"generated_at": utc_now(), "count": len(reviews), "reviews": reviews}
+
+
 @app.get("/market/quote/{symbol}", response_model=MarketQuoteOut)
 def api_fetch_market_quote(
     symbol: str,
@@ -291,43 +566,105 @@ def api_fetch_market_kline(
     limit: int = Query(default=120, ge=1, le=1000),
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
-    normalized_symbol = normalize_symbol(symbol)
-    try:
-        provider = get_market_data_provider(source)
-        bars = provider.fetch_kline(normalized_symbol, period=period, limit=limit)
-        cached_bars = upsert_market_klines(
-            db,
-            symbol=normalized_symbol,
-            source=provider.name,
-            period=period,
-            bars=bars,
-        )
-        create_market_fetch_log(
-            db,
-            symbol=normalized_symbol,
-            source=provider.name,
-            data_type="kline",
-            status="success",
-            message=f"Fetched {len(bars)} {period} bars.",
-        )
-    except MarketDataError as exc:
-        create_market_fetch_log(
-            db,
-            symbol=normalized_symbol,
-            source=source,
-            data_type="kline",
-            status="error",
-            message=str(exc),
-        )
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _fetch_kline_and_cache(
+        db, symbol=symbol, source=source, period=period, limit=limit
+    )
 
-    return {
-        "symbol": normalized_symbol,
-        "source": provider.name,
-        "period": period,
-        "count": len(cached_bars),
-        "bars": list(reversed(cached_bars)),
-    }
+
+@app.get("/market/indicators/{symbol}", response_model=IndicatorSnapshotOut)
+def api_get_market_indicators(
+    symbol: str,
+    source: str = "mock",
+    period: str = "daily",
+    limit: int = Query(default=120, ge=35, le=1000),
+    refresh: bool = False,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    return _indicator_snapshot_for_symbol(
+        db,
+        symbol=symbol,
+        source=source,
+        period=period,
+        limit=limit,
+        refresh=refresh,
+    )
+
+
+@app.get("/reports/stock/{symbol}", response_model=ReportOut)
+def api_generate_stock_report(
+    symbol: str,
+    source: str = "mock",
+    refresh: bool = True,
+    persist: bool = True,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    normalized_symbol = normalize_symbol(symbol)
+    holding = get_holding_by_symbol(db, normalized_symbol)
+    quote = _fetch_quote_and_cache(db, symbol=normalized_symbol, source=source)
+    indicators = _indicator_snapshot_for_symbol(
+        db,
+        symbol=normalized_symbol,
+        source=source,
+        refresh=refresh,
+    )
+    recent_signals = [
+        _signal_row_to_output(row)
+        for row in list_signals(db, symbol=normalized_symbol, limit=5)
+    ]
+    report = generate_stock_report(
+        symbol=normalized_symbol,
+        holding=holding,
+        quote=quote,
+        indicators=indicators,
+        recent_signals=recent_signals,
+    )
+    return _save_report(db, report=report, persist=persist)
+
+
+@app.get("/reports/trading-plan/{holding_id}", response_model=ReportOut)
+def api_generate_trading_plan(
+    holding_id: int,
+    source: str = "mock",
+    persist: bool = True,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    holding = get_holding(db, holding_id)
+    if holding is None:
+        raise HTTPException(status_code=404, detail="Holding not found")
+
+    symbol = normalize_symbol(holding["symbol"])
+    quote = _fetch_quote_and_cache(db, symbol=symbol, source=source)
+    indicators = _indicator_snapshot_for_symbol(
+        db, symbol=symbol, source=source, refresh=True
+    )
+    signal = evaluate_holding_signal(
+        holding,
+        current_price=quote["price"],
+        source_snapshot_id=quote["snapshot_id"],
+        indicators=indicators["snapshot"],
+    )
+    report = generate_trading_plan(
+        holding=holding,
+        quote=quote,
+        indicators=indicators,
+        signal=signal,
+    )
+    return _save_report(db, report=report, persist=persist)
+
+
+@app.get("/reports/daily-review", response_model=ReportOut)
+def api_generate_daily_review(
+    persist: bool = True,
+    signal_limit: int = Query(default=100, ge=1, le=500),
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    signals = [_signal_row_to_output(row) for row in list_signals(db, limit=signal_limit)]
+    report = generate_daily_review(
+        holdings=list_holdings(db),
+        signals=signals,
+        fetch_logs=list_market_fetch_logs(db, limit=signal_limit),
+    )
+    return _save_report(db, report=report, persist=persist)
 
 
 @app.get("/market/snapshots", response_model=list[MarketQuoteOut])
@@ -436,6 +773,17 @@ def api_generate_workbench_actions_from_market(
             holding,
             current_price=quote["price"],
             source_snapshot_id=quote["snapshot_id"],
+            indicators=(
+                _indicator_snapshot_for_symbol(
+                    db,
+                    symbol=symbol,
+                    source=payload.source,
+                    limit=payload.kline_limit,
+                    refresh=True,
+                )["snapshot"]
+                if payload.include_technical
+                else None
+            ),
         )
         signals.append(_save_signal(db, signal) if payload.persist else signal)
 

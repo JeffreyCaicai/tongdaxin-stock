@@ -63,6 +63,21 @@ def get_holding(connection: sqlite3.Connection, holding_id: int) -> dict[str, An
     return row_to_dict(row)
 
 
+def get_holding_by_symbol(
+    connection: sqlite3.Connection, symbol: str
+) -> dict[str, Any] | None:
+    row = connection.execute(
+        """
+        SELECT * FROM holdings
+        WHERE symbol = ?
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+        """,
+        (normalize_symbol(symbol),),
+    ).fetchone()
+    return row_to_dict(row)
+
+
 def create_holding(connection: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
     now = utc_now()
     data = {
@@ -457,6 +472,134 @@ def list_market_fetch_logs(
         SELECT * FROM market_fetch_logs
         {where_clause}
         ORDER BY fetched_at DESC, id DESC
+        LIMIT ?
+        """,
+        tuple(params + [limit]),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def create_analysis_report(
+    connection: sqlite3.Connection,
+    *,
+    report_type: str,
+    payload: dict[str, Any],
+    symbol: str | None = None,
+    created_at: str | None = None,
+) -> dict[str, Any]:
+    created_at = created_at or utc_now()
+    cursor = connection.execute(
+        """
+        INSERT INTO analysis_reports (
+          report_type, symbol, payload_json, created_at
+        )
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            report_type,
+            normalize_symbol(symbol) if symbol else None,
+            json.dumps(payload, ensure_ascii=False),
+            created_at,
+        ),
+    )
+    connection.commit()
+    row = connection.execute(
+        "SELECT * FROM analysis_reports WHERE id = ?", (int(cursor.lastrowid),)
+    ).fetchone()
+    created = row_to_dict(row)
+    assert created is not None
+    return created
+
+
+def list_analysis_reports(
+    connection: sqlite3.Connection,
+    *,
+    report_type: str | None = None,
+    symbol: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    limit = max(1, min(limit, 500))
+    clauses: list[str] = []
+    params: list[Any] = []
+    if report_type:
+        clauses.append("report_type = ?")
+        params.append(report_type)
+    if symbol:
+        clauses.append("symbol = ?")
+        params.append(normalize_symbol(symbol))
+
+    where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        f"""
+        SELECT * FROM analysis_reports
+        {where_clause}
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        tuple(params + [limit]),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def create_backtest(
+    connection: sqlite3.Connection,
+    *,
+    symbol: str,
+    source: str,
+    strategy_name: str,
+    config: dict[str, Any],
+    result: dict[str, Any],
+    created_at: str | None = None,
+) -> dict[str, Any]:
+    created_at = created_at or utc_now()
+    cursor = connection.execute(
+        """
+        INSERT INTO backtests (
+          symbol, source, strategy_name, config_json, result_json, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            normalize_symbol(symbol),
+            source,
+            strategy_name,
+            json.dumps(config, ensure_ascii=False),
+            json.dumps(result, ensure_ascii=False),
+            created_at,
+        ),
+    )
+    connection.commit()
+    row = connection.execute(
+        "SELECT * FROM backtests WHERE id = ?", (int(cursor.lastrowid),)
+    ).fetchone()
+    created = row_to_dict(row)
+    assert created is not None
+    return created
+
+
+def list_backtests(
+    connection: sqlite3.Connection,
+    *,
+    symbol: str | None = None,
+    strategy_name: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    limit = max(1, min(limit, 500))
+    clauses: list[str] = []
+    params: list[Any] = []
+    if symbol:
+        clauses.append("symbol = ?")
+        params.append(normalize_symbol(symbol))
+    if strategy_name:
+        clauses.append("strategy_name = ?")
+        params.append(strategy_name)
+
+    where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        f"""
+        SELECT * FROM backtests
+        {where_clause}
+        ORDER BY created_at DESC, id DESC
         LIMIT ?
         """,
         tuple(params + [limit]),

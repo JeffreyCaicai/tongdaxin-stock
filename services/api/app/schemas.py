@@ -173,3 +173,46 @@ class MarketFetchLogOut(BaseModel):
 class WorkbenchMarketActionRequest(BaseModel):
     source: str = "mock"
     persist: bool = True
+    include_technical: bool = True
+    kline_limit: int = Field(default=120, ge=35, le=1000)
+
+
+class IndicatorSnapshotOut(BaseModel):
+    symbol: str
+    source: str
+    period: str
+    snapshot: dict[str, Any]
+
+
+class ReportOut(BaseModel):
+    id: int | None = None
+    report_type: str
+    symbol: str | None = None
+    created_at: str | None = None
+    payload: dict[str, Any]
+
+
+class BacktestRequest(BaseModel):
+    source: str = "mock"
+    period: str = "daily"
+    limit: int = Field(default=240, ge=80, le=1000)
+    initial_equity: float = Field(default=100000.0, gt=0)
+    stop_loss_pct: float = Field(default=6.0, gt=0, le=50)
+    take_profit_pct: float = Field(default=12.0, gt=0, le=200)
+    persist: bool = True
+
+
+class BacktestOut(BaseModel):
+    id: int | None = None
+    symbol: str
+    source: str
+    strategy_name: str
+    created_at: str | None = None
+    config: dict[str, Any]
+    result: dict[str, Any]
+
+
+class SignalReviewOut(BaseModel):
+    generated_at: str
+    count: int
+    reviews: list[dict[str, Any]]

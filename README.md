@@ -28,6 +28,14 @@ scripts/                   # 本地维护脚本
 
 ## 本地后端
 
+零依赖启动方式，会自动使用标准库 fallback API；如果已安装 FastAPI/uvicorn，则会启动完整 FastAPI 服务：
+
+```bash
+python3 scripts/run_api.py
+```
+
+完整 FastAPI 环境：
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -55,8 +63,16 @@ curl http://127.0.0.1:8765/health
 - `GET /watchlist/export.csv`
 - `POST /watchlist/import.csv`
 - `GET /signals`
+- `GET /reports`
+- `GET /reports/stock/{symbol}`
+- `GET /reports/trading-plan/{holding_id}`
+- `GET /reports/daily-review`
+- `GET /backtests`
+- `POST /backtests/{symbol}`
+- `GET /reviews/signals`
 - `GET /market/quote/{symbol}`
 - `GET /market/kline/{symbol}`
+- `GET /market/indicators/{symbol}`
 - `GET /market/snapshots`
 - `GET /market/klines/{symbol}`
 - `GET /market/fetch-logs`
@@ -86,10 +102,25 @@ curl "http://127.0.0.1:8765/market/quote/600519?source=mock"
 curl "http://127.0.0.1:8765/market/kline/600519?source=mock&period=daily&limit=30"
 ```
 
+生成报告和回测：
+
+```bash
+curl "http://127.0.0.1:8765/reports/stock/600519?source=mock"
+curl -X POST http://127.0.0.1:8765/backtests/600519 \
+  -H "Content-Type: application/json" \
+  -d '{"source":"mock","limit":240,"persist":true}'
+```
+
 ## 测试
 
 ```bash
-python -m unittest discover services/api/tests
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover services/api/tests
+```
+
+服务启动后可运行端到端 smoke test：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/smoke_api.py http://127.0.0.1:8765
 ```
 
 ## 核心原则
