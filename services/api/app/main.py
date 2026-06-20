@@ -458,6 +458,38 @@ def api_evaluate_holding_signal(
     return _save_signal(db, signal)
 
 
+@app.post("/holdings/{holding_id}/signals/from-market", response_model=SignalOut)
+def api_evaluate_holding_signal_from_market(
+    holding_id: int,
+    payload: WorkbenchMarketActionRequest,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    holding = get_holding(db, holding_id)
+    if holding is None:
+        raise HTTPException(status_code=404, detail="Holding not found")
+
+    symbol = normalize_symbol(holding["symbol"])
+    quote = _fetch_quote_and_cache(db, symbol=symbol, source=payload.source)
+    indicators = (
+        _indicator_snapshot_for_symbol(
+            db,
+            symbol=symbol,
+            source=payload.source,
+            limit=payload.kline_limit,
+            refresh=True,
+        )["snapshot"]
+        if payload.include_technical
+        else None
+    )
+    signal = evaluate_holding_signal(
+        holding,
+        current_price=quote["price"],
+        source_snapshot_id=quote["snapshot_id"],
+        indicators=indicators,
+    )
+    return _save_signal(db, signal) if payload.persist else signal
+
+
 @app.get("/signals", response_model=list[SignalOut])
 def api_list_signals(
     symbol: str | None = None,

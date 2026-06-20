@@ -138,6 +138,7 @@ def index_html() -> str:
       <div class="grid">
         <div class="panel">
           <h2 data-i18n="holdings">持仓</h2>
+          <p class="status" id="holdingsHint"></p>
           <div id="holdings"></div>
         </div>
         <div class="panel">
@@ -190,6 +191,8 @@ def index_html() -> str:
         savedHolding: "已保存持仓",
         updatedHolding: "已更新已有持仓",
         duplicateHoldingNote: "检测到相同股票代码，已更新原持仓，避免重复记录。",
+        autoSignalCreated: "已为该股票自动生成最新信号",
+        holdingsHint: "默认显示每只股票最新一条持仓。",
         latestSignals: "最新",
         historySignals: "历史",
         latestSignalsHint: "默认显示每只股票最新一条信号，避免重复历史记录干扰判断。",
@@ -247,6 +250,8 @@ def index_html() -> str:
         savedHolding: "Holding saved",
         updatedHolding: "Existing holding updated",
         duplicateHoldingNote: "Same symbol detected; updated the existing holding to avoid duplicates.",
+        autoSignalCreated: "A fresh signal was generated for this symbol",
+        holdingsHint: "Showing the latest holding per symbol.",
         latestSignals: "Latest",
         historySignals: "History",
         latestSignalsHint: "Showing the latest signal per symbol to avoid duplicate history noise.",
@@ -353,13 +358,22 @@ def index_html() -> str:
         initial_thesis: document.getElementById("initial_thesis").value
       };
       const existing = cachedHoldings.find(row => row.symbol === payload.symbol.trim().toUpperCase());
-      await api(existing ? `/holdings/${existing.id}` : "/holdings", {
+      const saved = await api(existing ? `/holdings/${existing.id}` : "/holdings", {
         method: existing ? "PATCH" : "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(payload)
       });
-      document.getElementById("review").innerHTML = `<p class="summary">${existing ? t("updatedHolding") + "。 " + t("duplicateHoldingNote") : t("savedHolding")}</p>`;
+      await generateHoldingSignal(saved.id);
+      const prefix = existing ? t("updatedHolding") + "。 " + t("duplicateHoldingNote") : t("savedHolding");
+      document.getElementById("review").innerHTML = `<p class="summary">${prefix}。${t("autoSignalCreated")}。</p>`;
       await refreshAll();
+    }
+    async function generateHoldingSignal(holdingId) {
+      return api(`/holdings/${holdingId}/signals/from-market`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({source: "mock", persist: true, include_technical: true})
+      });
     }
     async function refreshAll() {
       cachedHoldings = await api("/holdings");
@@ -390,7 +404,8 @@ def index_html() -> str:
       renderBacktest(cachedBacktest);
     }
     function renderHoldings(rows) {
-      document.getElementById("holdings").innerHTML = table(rows, ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"]);
+      document.getElementById("holdingsHint").textContent = t("holdingsHint");
+      document.getElementById("holdings").innerHTML = table(latestBySymbol(rows), ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"]);
     }
     function renderSignals(rows) {
       const view = document.getElementById("signalView").value;

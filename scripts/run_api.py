@@ -25,6 +25,8 @@ from services.api.app.repository import (
     list_market_fetch_logs,
     list_signals,
     normalize_symbol,
+    get_holding,
+    update_holding,
     upsert_market_klines,
     utc_now,
 )
@@ -110,6 +112,14 @@ class FallbackHandler(BaseHTTPRequestHandler):
             if path == "/holdings":
                 with connect() as db:
                     self._send_json(create_holding(db, payload), status=201)
+            elif path.startswith("/holdings/") and path.endswith("/signals/from-market"):
+                holding_id = int(path.split("/")[2])
+                with connect() as db:
+                    holding = get_holding(db, holding_id)
+                    if holding is None:
+                        self._send_json({"detail": "Holding not found"}, status=404)
+                    else:
+                        self._send_json(_holding_signal_from_market(db, holding, payload))
             elif path == "/workbench/actions/from-market":
                 with connect() as db:
                     self._send_json(_workbench_actions_from_market(db, payload))
@@ -120,6 +130,25 @@ class FallbackHandler(BaseHTTPRequestHandler):
             else:
                 self._send_json({"detail": "Not found"}, status=404)
         except (KeyError, ValueError, MarketDataError) as exc:
+            self._send_json({"detail": str(exc)}, status=400)
+
+    def do_PATCH(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        payload = self._read_json()
+
+        try:
+            if path.startswith("/holdings/"):
+                holding_id = int(path.rsplit("/", 1)[-1])
+                with connect() as db:
+                    holding = update_holding(db, holding_id, payload)
+                    if holding is None:
+                        self._send_json({"detail": "Holding not found"}, status=404)
+                    else:
+                        self._send_json(holding)
+            else:
+                self._send_json({"detail": "Not found"}, status=404)
+        except (KeyError, ValueError) as exc:
             self._send_json({"detail": str(exc)}, status=400)
 
     def log_message(self, format: str, *args: object) -> None:
@@ -209,18 +238,17 @@ def _workbench_actions_from_market(db, payload: dict) -> dict:
     for holding in holdings:
         symbol = normalize_symbol(holding["symbol"])
         try:
-            quote = _fetch_quote(db, symbol=symbol, source=source)
-            indicators = None
-            if include_technical:
-                kline = _fetch_kline(db, symbol=symbol, source=source, limit=kline_limit)
-                indicators = calculate_indicator_snapshot(kline["bars"])
-            signal = evaluate_holding_signal(
+            signal = _holding_signal_from_market(
+                db,
                 holding,
-                current_price=quote["price"],
-                source_snapshot_id=quote["snapshot_id"],
-                indicators=indicators,
+                {
+                    "source": source,
+                    "persist": persist,
+                    "include_technical": include_technical,
+                    "kline_limit": kline_limit,
+                },
             )
-            signals.append(_save_signal(db, signal) if persist else signal)
+            signals.append(signal)
         except MarketDataError:
             missing_prices.append(symbol)
 
@@ -231,6 +259,26 @@ def _workbench_actions_from_market(db, payload: dict) -> dict:
         "missing_prices": missing_prices,
         "signals": signals,
     }
+
+
+def _holding_signal_from_market(db, holding: dict, payload: dict) -> dict:
+    source = payload.get("source", "mock")
+    persist = bool(payload.get("persist", True))
+    include_technical = bool(payload.get("include_technical", True))
+    kline_limit = int(payload.get("kline_limit", 120))
+    symbol = normalize_symbol(holding["symbol"])
+    quote = _fetch_quote(db, symbol=symbol, source=source)
+    indicators = None
+    if include_technical:
+        kline = _fetch_kline(db, symbol=symbol, source=source, limit=kline_limit)
+        indicators = calculate_indicator_snapshot(kline["bars"])
+    signal = evaluate_holding_signal(
+        holding,
+        current_price=quote["price"],
+        source_snapshot_id=quote["snapshot_id"],
+        indicators=indicators,
+    )
+    return _save_signal(db, signal) if persist else signal
 
 
 def _run_backtest(db, *, symbol: str, payload: dict) -> dict:
