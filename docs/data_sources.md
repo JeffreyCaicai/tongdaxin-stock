@@ -6,9 +6,9 @@ Start with one low-friction provider, then add cross-checks.
 
 Priority:
 
-1. `eltdx` for Tongdaxin protocol PoC.
-2. AkShare as backup and cross-validation source.
-3. Official Tongdaxin Token/OpenClaw route when credentials are available.
+1. Official Tongdaxin Token/OpenClaw-compatible route when credentials are available.
+2. `eltdx` for Tongdaxin protocol PoC and MCP tool bridge.
+3. Eastmoney as a no-token fallback and cross-validation source.
 4. Local TdxQuant route if the local Tongdaxin environment is already configured.
 
 ## Adapter Contract
@@ -27,7 +27,15 @@ The rule engine should never depend directly on provider-specific payloads.
 
 ## Current Providers
 
-The primary route is Tongdaxin protocol/MCP:
+The official Token route is available through `source=tdx-official`:
+
+- Requires `TDX_API_KEY` in the shell or local `.env`; `TDX_API_TOKEN` is also accepted as a compatibility fallback.
+- Uses `TDX_API_DATA_ENDPOINT`, defaulting to `http://tdxhub.icfqs.com:7615/TQLEX`.
+- Quote calls use `Entry=TdxShare.PBHQInfo`.
+- K-line calls use `Entry=TdxShare.PBFXT`.
+- Requests send the token in the HTTP `token` header and never store it in the database payload.
+
+The Tongdaxin protocol/MCP route remains available:
 
 - `source=tongdaxin` / `source=eltdx` uses the optional `eltdx` provider.
 - Install with `pip install "eltdx[mcp]"`.
@@ -51,9 +59,10 @@ Implemented endpoints:
 
 Additional providers:
 
+- `source=tdx-official` uses Tongdaxin official Token data-service endpoints.
 - `source=tongdaxin` / `source=eltdx` uses Tongdaxin protocol through eltdx.
 - `source=eastmoney` uses Eastmoney public quote/K-line endpoints as fallback and requires no extra Python package.
 - `source=akshare` uses AkShare when the package is installed locally. If it is not installed, the API returns a clear provider error and the app can continue using `source=mock`.
 - `source=mock` uses synthetic demo data and should not be treated as market truth.
 
-Next provider target: official Tongdaxin Token/OpenClaw once credentials are available, then local TdxQuant when the user has a configured terminal.
+Next provider target: local TdxQuant when the user has a configured terminal.

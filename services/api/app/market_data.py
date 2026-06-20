@@ -8,6 +8,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from .config import get_tdx_api_endpoint, get_tdx_api_key
 from .repository import normalize_symbol, utc_now
 
 
@@ -276,6 +277,167 @@ class EltdxMarketDataProvider:
         return bars
 
 
+class TdxOfficialMarketDataProvider:
+    name = "tdx-official"
+
+    def fetch_quote(self, symbol: str) -> dict[str, Any]:
+        normalized_symbol = normalize_symbol(symbol)
+        payload = _tdx_official_post(
+            "TdxShare.PBHQInfo",
+            {
+                "Head": {"Target": "0", "CharSet": "UTF8"},
+                "Code": normalized_symbol,
+                "Setcode": _tdx_official_setcode(normalized_symbol),
+                "HasHQInfo": "1",
+                "HasExtInfo": "1",
+                "BspNum": "5",
+                "HasProInfo": "0",
+                "HasCalcInfo": "1",
+                "HasCwInfo": "0",
+                "HasStatInfo": "0",
+            },
+        )
+        _raise_tdx_official_error(payload, normalized_symbol, "quote")
+
+        base_info = _as_dict(payload.get("BaseInfo"))
+        hq_info = _as_dict(payload.get("HQInfo"))
+        calc_info = _as_dict(payload.get("CalcInfo"))
+        if not hq_info:
+            raise MarketDataError(
+                f"tdx-official quote response did not include HQInfo for {normalized_symbol}"
+            )
+
+        price = _required_tdx_official_float(
+            _first_value(hq_info, ("Now", "now", "Price", "price", "最新价", "现价")),
+            "price",
+        )
+        previous_close = _first_float(
+            hq_info,
+            ("Close", "close", "PreClose", "pre_close", "previous_close", "昨收"),
+        )
+        change = _first_float(hq_info, ("ZDE", "Change", "change", "涨跌", "涨跌额"))
+        if change is None and previous_close not in {None, 0}:
+            change = round(price - float(previous_close), 4)
+        pct_change = _first_float(
+            calc_info,
+            ("CAZAF", "PctChange", "pct_change", "change_pct", "涨幅", "涨跌幅"),
+        )
+        if pct_change is None:
+            pct_change = _first_float(hq_info, ("ZDF", "PctChange", "涨幅", "涨跌幅"))
+        if pct_change is None and previous_close not in {None, 0}:
+            pct_change = round((price - float(previous_close)) / float(previous_close) * 100, 4)
+
+        return {
+            "symbol": normalized_symbol,
+            "name": _first_text(base_info, ("Name", "name", "名称")),
+            "source": self.name,
+            "price": price,
+            "open": _first_float(hq_info, ("Open", "open", "今开", "开盘")),
+            "high": _first_float(hq_info, ("High", "high", "最高")),
+            "low": _first_float(hq_info, ("Low", "low", "最低")),
+            "previous_close": previous_close,
+            "change": change,
+            "pct_change": pct_change,
+            "volume": _first_float(hq_info, ("Volume", "volume", "Vol", "成交量")),
+            "amount": _first_float(hq_info, ("Amount", "amount", "成交额")),
+            "turnover_rate": _first_float(hq_info, ("HSL", "hsl", "turnover_rate", "换手率")),
+            "fetched_at": utc_now(),
+            "raw": _jsonable(payload),
+        }
+
+    def fetch_kline(
+        self,
+        symbol: str,
+        *,
+        period: str = "daily",
+        limit: int = 120,
+    ) -> list[dict[str, Any]]:
+        normalized_symbol = normalize_symbol(symbol)
+        payload = _tdx_official_post(
+            "TdxShare.PBFXT",
+            {
+                "Head": {"Target": 0, "CharSet": "UTF8"},
+                "Code": normalized_symbol,
+                "Setcode": int(_tdx_official_setcode(normalized_symbol)),
+                "Period": int(_tdx_official_period(period)),
+                "Startxh": 0,
+                "WantNum": max(1, min(limit, 1000)),
+                "TQFlag": 11,
+                "MPData": 0,
+                "HasAttachInfo": 1,
+                "HasLtgb": 0,
+                "ForRefresh": 0,
+                "HasIpoPrice": 0,
+            },
+        )
+        _raise_tdx_official_error(payload, normalized_symbol, "kline")
+
+        raw_bars = payload.get("ListItem") or payload.get("listItem") or payload.get("items")
+        if not isinstance(raw_bars, list) or not raw_bars:
+            raise MarketDataError(
+                f"tdx-official kline response did not include ListItem for {normalized_symbol}"
+            )
+
+        bars: list[dict[str, Any]] = []
+        for row in raw_bars[-limit:]:
+            item = _as_dict(row)
+            values = item.get("Item") or item.get("item")
+            values = values if isinstance(values, list) else None
+            trade_date = _tdx_official_kline_value(
+                item,
+                values,
+                ("TradeDate", "trade_date", "Date", "date", "Time", "time", "日期", "时间"),
+                (0, 1),
+            )
+            bars.append(
+                {
+                    "symbol": normalized_symbol,
+                    "source": self.name,
+                    "period": period,
+                    "trade_date": _tdx_official_date_text(trade_date),
+                    "open": _required_tdx_official_float(
+                        _tdx_official_kline_value(
+                            item, values, ("Open", "open", "开盘"), (2, 1)
+                        ),
+                        "open",
+                    ),
+                    "high": _required_tdx_official_float(
+                        _tdx_official_kline_value(
+                            item, values, ("High", "high", "最高"), (3, 2)
+                        ),
+                        "high",
+                    ),
+                    "low": _required_tdx_official_float(
+                        _tdx_official_kline_value(
+                            item, values, ("Low", "low", "最低"), (4, 3)
+                        ),
+                        "low",
+                    ),
+                    "close": _required_tdx_official_float(
+                        _tdx_official_kline_value(
+                            item, values, ("Close", "close", "收盘"), (5, 4)
+                        ),
+                        "close",
+                    ),
+                    "volume": _safe_float(
+                        _tdx_official_kline_value(
+                            item, values, ("Volume", "volume", "Vol", "成交量"), (6, 5)
+                        )
+                    ),
+                    "amount": _safe_float(
+                        _tdx_official_kline_value(
+                            item, values, ("Amount", "amount", "成交额"), (7, 6)
+                        )
+                    ),
+                    "payload": _jsonable(item),
+                }
+            )
+
+        if not bars:
+            raise MarketDataError(f"tdx-official kline payload was empty for {normalized_symbol}")
+        return bars
+
+
 class EastmoneyMarketDataProvider:
     name = "eastmoney"
 
@@ -377,12 +539,15 @@ def get_market_data_provider(source: str | None) -> MarketDataProvider:
         return MockMarketDataProvider()
     if source_name in {"tdx", "tongdaxin", "eltdx"}:
         return EltdxMarketDataProvider()
+    if source_name in {"tdx-official", "tdx_token", "tdx-token", "official", "openclaw"}:
+        return TdxOfficialMarketDataProvider()
     if source_name in {"eastmoney", "real"}:
         return EastmoneyMarketDataProvider()
     if source_name == "akshare":
         return AkShareMarketDataProvider()
     raise MarketDataError(
-        f"Unsupported market data source '{source_name}'. Available sources: eastmoney, akshare, mock."
+        "Unsupported market data source "
+        f"'{source_name}'. Available sources: tongdaxin, tdx-official, eastmoney, akshare, mock."
     )
 
 
@@ -446,6 +611,145 @@ def _tdx_period(period: str) -> str:
     if period_name in {"monthly", "month", "m"}:
         return "month"
     return period_name
+
+
+def _tdx_official_setcode(symbol: str) -> str:
+    normalized_symbol = normalize_symbol(symbol)
+    if normalized_symbol.startswith(("4", "8")):
+        return "2"
+    if normalized_symbol.startswith(("5", "6", "9")):
+        return "1"
+    return "0"
+
+
+def _tdx_official_period(period: str) -> str:
+    period_name = (period or "daily").lower()
+    mapping = {
+        "daily": "4",
+        "day": "4",
+        "d": "4",
+        "weekly": "5",
+        "week": "5",
+        "w": "5",
+        "monthly": "6",
+        "month": "6",
+        "m": "6",
+        "60min": "3",
+        "60m": "3",
+        "hour": "3",
+        "1min": "9",
+        "1m": "9",
+        "5min": "0",
+        "5m": "0",
+    }
+    return mapping.get(period_name, period_name)
+
+
+def _tdx_official_post(entry: str, body: dict[str, Any]) -> dict[str, Any]:
+    token = get_tdx_api_key()
+    if not token:
+        raise MarketDataError(
+            "TDX_API_KEY is not configured. Set it in your shell or local .env, "
+            "or switch to source=eastmoney."
+        )
+
+    endpoint = get_tdx_api_endpoint().rstrip("?")
+    url = f"{endpoint}?Entry={entry}"
+    request = Request(
+        url,
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json", "token": token},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = _read_http_error(exc)
+        if exc.code in {401, 403}:
+            raise MarketDataError(
+                f"tdx-official request was rejected with HTTP {exc.code}. "
+                "Check that TDX_API_KEY is valid and has data-service permission."
+                f"{detail}"
+            ) from exc
+        raise MarketDataError(
+            f"tdx-official request failed with HTTP {exc.code}.{detail}"
+        ) from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        raise MarketDataError(
+            f"tdx-official request failed: {exc}. "
+            "Check network access to tdxhub.icfqs.com:7615 or switch source=eastmoney."
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise MarketDataError(f"tdx-official returned invalid JSON: {exc}") from exc
+
+
+def _read_http_error(error: HTTPError) -> str:
+    try:
+        body = error.read().decode("utf-8", errors="replace").strip()
+    except Exception:
+        body = ""
+    return f" Response: {body[:500]}" if body else ""
+
+
+def _raise_tdx_official_error(payload: dict[str, Any], symbol: str, data_type: str) -> None:
+    error = _first_value(
+        payload,
+        (
+            "error",
+            "Error",
+            "errmsg",
+            "ErrMsg",
+            "message",
+            "Message",
+            "ErrorInfo",
+            "ErrInfo",
+        ),
+    )
+    if error:
+        raise MarketDataError(
+            f"tdx-official {data_type} request failed for {symbol}: {error}"
+        )
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _tdx_official_kline_value(
+    item: dict[str, Any],
+    values: list[Any] | None,
+    keys: tuple[str, ...],
+    indexes: tuple[int, ...],
+) -> Any:
+    value = _first_value(item, keys)
+    if value not in {None, ""}:
+        return value
+    if not values:
+        return None
+    for index in indexes:
+        if index < len(values) and values[index] not in {None, ""}:
+            return values[index]
+    return None
+
+
+def _tdx_official_date_text(value: Any) -> str:
+    if value is None:
+        raise MarketDataError("tdx-official returned empty K-line trade date")
+    text = str(value).strip()
+    if len(text) >= 8 and text[:8].isdigit():
+        compact = text[:8]
+        return f"{compact[:4]}-{compact[4:6]}-{compact[6:8]}"
+    return text[:10]
+
+
+def _required_tdx_official_float(value: Any, field_name: str) -> float:
+    parsed = _safe_float(value)
+    if parsed is None:
+        raise MarketDataError(f"tdx-official returned empty numeric field: {field_name}")
+    return parsed
 
 
 def _eastmoney_secid(symbol: str) -> str:

@@ -115,6 +115,7 @@ def index_html() -> str:
       </select>
       <label for="marketSourceSelect" data-i18n="marketSource" style="margin:0">行情源</label>
       <select id="marketSourceSelect" onchange="setMarketSource(this.value)">
+        <option value="tdx-official" data-i18n="tdxOfficialSource">通达信官方 Token</option>
         <option value="tongdaxin" data-i18n="tongdaxinSource">通达信 eltdx</option>
         <option value="eastmoney" data-i18n="eastmoneySource">Eastmoney 兜底</option>
         <option value="akshare" data-i18n="akshareSource">AkShare 真实行情</option>
@@ -231,6 +232,7 @@ def index_html() -> str:
         refresh: "刷新",
         fetchQuote: "查询行情",
         marketSource: "行情源",
+        tdxOfficialSource: "通达信官方 Token",
         tongdaxinSource: "通达信 eltdx",
         eastmoneySource: "Eastmoney 兜底",
         akshareSource: "AkShare 真实行情",
@@ -238,6 +240,7 @@ def index_html() -> str:
         quoteLoaded: "已读取行情",
         quoteFailed: "行情读取失败",
         mockSourceHint: "当前使用演示行情，名称和价格不代表真实市场。",
+        officialSourceHint: "当前使用通达信官方 Token 数据源，需要本地配置 TDX_API_KEY。",
         realSourceHint: "当前使用通达信/真实行情源。若通达信 7709 连接失败，可临时切换 Eastmoney 兜底。",
         analyzePool: "分析当前池",
         generatePoolSignals: "生成今日信号",
@@ -319,6 +322,7 @@ def index_html() -> str:
         refresh: "Refresh",
         fetchQuote: "Fetch Quote",
         marketSource: "Market Source",
+        tdxOfficialSource: "Tongdaxin Official Token",
         tongdaxinSource: "Tongdaxin eltdx",
         eastmoneySource: "Eastmoney Fallback",
         akshareSource: "AkShare Real",
@@ -326,6 +330,7 @@ def index_html() -> str:
         quoteLoaded: "Quote loaded",
         quoteFailed: "Quote failed",
         mockSourceHint: "Demo quotes are synthetic and do not represent the real market.",
+        officialSourceHint: "Using the official Tongdaxin Token source. Local TDX_API_KEY is required.",
         realSourceHint: "Using Tongdaxin or a real market data source. If Tongdaxin 7709 fails, switch to Eastmoney fallback.",
         analyzePool: "Analyze Pool",
         generatePoolSignals: "Generate Signals",
@@ -721,7 +726,12 @@ def index_html() -> str:
       nameEditedManually = false;
     }
     function renderSourceStatus() {
-      const text = marketSource() === "mock" ? t("mockSourceHint") : t("realSourceHint");
+      const source = marketSource();
+      const text = source === "mock"
+        ? t("mockSourceHint")
+        : source === "tdx-official"
+          ? t("officialSourceHint")
+          : t("realSourceHint");
       document.getElementById("quoteStatus").textContent = text;
     }
     function renderDailyReview(report) {

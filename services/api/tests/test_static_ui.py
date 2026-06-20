@@ -11,10 +11,12 @@ class StaticUiTests(unittest.TestCase):
 
         self.assertIn('id="languageSelect"', html)
         self.assertIn('id="marketSourceSelect"', html)
+        self.assertIn('value="tdx-official"', html)
         self.assertIn('value="tongdaxin"', html)
         self.assertIn("通达信股票工作台", html)
         self.assertIn("Tongdaxin Stock Workbench", html)
         self.assertIn("setLanguage", html)
+        self.assertIn("tdxOfficialSource", html)
         self.assertIn("tongdaxinSource", html)
         self.assertIn("eastmoneySource", html)
 

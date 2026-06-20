@@ -2,12 +2,19 @@
 
 Adapters normalize provider-specific data into project-owned schemas before the signal engine reads it.
 
-The MVP primary route is Tongdaxin protocol via `eltdx`:
+The API now has two Tongdaxin routes:
+
+- `source=tdx-official` uses the official Token/OpenClaw-compatible HTTP data service.
+- `source=tongdaxin` / `source=eltdx` uses Tongdaxin protocol via `eltdx`.
+
+Install the protocol/MCP route with:
 
 ```bash
 pip install "eltdx[mcp]"
 eltdx-mcp
 ```
+
+The official Token route reads `TDX_API_KEY` from the shell or local `.env`, defaults to `http://tdxhub.icfqs.com:7615/TQLEX`, and calls `TdxShare.PBHQInfo` / `TdxShare.PBFXT` with the HTTP `token` header.
 
 The local API also exposes `source=tongdaxin` / `source=eltdx`, which uses `eltdx.TdxClient` in process when the package is installed. The MCP server remains the preferred Agent tool surface for richer workflows such as F10, topics, and future Skill-style reports.
 
@@ -38,10 +45,7 @@ export TDX_ELTDX_MCP_COMMAND='eltdx-mcp'
 
 The stock-pool analysis endpoint uses the selected personal stock pool as the full analysis scope. It lists MCP tools, selects quote/profile-like tools by name and description, builds arguments from the tool schema, calls them once per pool symbol, then stores a `stock_pool_mcp_analysis` report.
 
-Planned providers:
+Provider backlog:
 
-- `eltdx` / `eltdx-mcp` as the first Tongdaxin MVP route
-- official Tongdaxin Token/OpenClaw plugin when credentials are available
 - local TdxQuant when the terminal environment is configured
-- Eastmoney and AkShare as fallback/cross-validation providers
 - Tushare backup

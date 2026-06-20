@@ -10,7 +10,7 @@
 - 已选择 `Tauri + React` 作为桌面端方向，MVP 先以本地 FastAPI 服务打通数据和规则闭环。
 - 已建立 SQLite schema、持仓 CRUD、目标池 CRUD 和基础信号评估入口。
 - 已支持持仓/目标池 CSV 导入导出、信号历史查询和工作台批量行动信号生成。
-- 数据源已具备 provider 抽象，主路线是通达信协议/MCP：`source=tongdaxin` 走可选 `eltdx` provider。安装 `eltdx[mcp]` 后可用通达信行情/K 线能力，并可启动 `eltdx-mcp` 接入 MCP 工具服务。
+- 数据源已具备 provider 抽象：`source=tdx-official` 走通达信官方 Token 数据服务，`source=tongdaxin` / `source=eltdx` 走可选通达信协议 provider 和 `eltdx-mcp` 工具桥。
 - `source=eastmoney` 保留为零依赖兜底和交叉验证源；`source=mock` 仅用于离线演示和测试。
 - 工作台新增个人股票池：先选择股票池，再围绕该池内股票展示持仓、信号、复盘和池级分析。
 
@@ -51,6 +51,16 @@ uvicorn services.api.app.main:app --reload --host 127.0.0.1 --port 8765
 ```
 
 `eltdx` 需要 Python 3.10+。如果系统 `python3` 是 3.9，先安装/指定 Python 3.10 以上版本创建 `.venv`，否则通达信源会因为缺少 `eltdx` 而不可用。
+
+通达信官方 Token 数据源：
+
+```bash
+# 本地 .env 或 shell 环境变量均可，真实 Key 不要提交到 git
+TDX_API_KEY=your-tdx-api-key
+TDX_API_DATA_ENDPOINT=http://tdxhub.icfqs.com:7615/TQLEX
+```
+
+配置后在 UI 右上角选择“通达信官方 Token”，或在 API 请求里传 `source=tdx-official`。该路线按官方 OpenClaw 插件兼容方式调用 `TdxShare.PBHQInfo`（实时行情）和 `TdxShare.PBFXT`（K 线），HTTP header 使用 `token`。
 
 健康检查：
 
@@ -149,8 +159,8 @@ curl -X POST http://127.0.0.1:8765/workbench/actions/from-market \
 拉取单股 quote / K 线：
 
 ```bash
-curl "http://127.0.0.1:8765/market/quote/600519?source=tongdaxin"
-curl "http://127.0.0.1:8765/market/kline/600519?source=tongdaxin&period=daily&limit=30"
+curl "http://127.0.0.1:8765/market/quote/600519?source=tdx-official"
+curl "http://127.0.0.1:8765/market/kline/600519?source=tdx-official&period=daily&limit=30"
 ```
 
 生成报告和回测：
