@@ -37,8 +37,14 @@ class StaticUiTests(unittest.TestCase):
 
         self.assertIn('id="symbol" value="600519" oninput="onSymbolChanged()"', html)
         self.assertIn('id="name" value="" oninput="onNameChanged()"', html)
+        self.assertIn('id="cost_price" type="number" value="" oninput="onPlanChanged()"', html)
+        self.assertIn('id="stop_loss" type="number" value="" oninput="onPlanChanged()"', html)
+        self.assertIn('id="take_profit" type="number" value="" oninput="onPlanChanged()"', html)
+        self.assertIn("thesisPlaceholder", html)
+        self.assertNotIn("Manual plan with mock data.", html)
         self.assertIn("function onSymbolChanged()", html)
         self.assertIn("syncAutoName", html)
+        self.assertIn("draftPlanFromQuote", html)
         self.assertIn("hydrateSymbolFromMarket", html)
 
     def test_pool_analysis_button_uses_mcp_endpoint(self) -> None:

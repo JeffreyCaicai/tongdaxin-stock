@@ -134,13 +134,13 @@ def index_html() -> str:
       <label data-i18n="quantity">数量</label>
       <input id="quantity" type="number" value="100">
       <label data-i18n="costPrice">成本价</label>
-      <input id="cost_price" type="number" value="95">
+      <input id="cost_price" type="number" value="" oninput="onPlanChanged()">
       <label data-i18n="stopLoss">止损价</label>
-      <input id="stop_loss" type="number" value="88">
+      <input id="stop_loss" type="number" value="" oninput="onPlanChanged()">
       <label data-i18n="takeProfit">止盈价</label>
-      <input id="take_profit" type="number" value="120">
+      <input id="take_profit" type="number" value="" oninput="onPlanChanged()">
       <label data-i18n="thesis">买入理由</label>
-      <textarea id="initial_thesis">Manual plan with mock data.</textarea>
+      <textarea id="initial_thesis" data-i18n-placeholder="thesisPlaceholder" placeholder="记录你的买入逻辑、观察条件或风险点" oninput="onPlanChanged()"></textarea>
       <div class="toolbar" style="margin-top:14px">
         <button onclick="addHolding()" data-i18n="add">添加</button>
         <button class="secondary" onclick="addSymbolToPool()" data-i18n="addToPool">加入股票池</button>
@@ -239,6 +239,9 @@ def index_html() -> str:
         mockSource: "Mock 演示行情",
         quoteLoaded: "已读取行情",
         quoteFailed: "行情读取失败",
+        quoteLoadedWithPlan: "已读取行情，并生成计划草稿",
+        requiredCostMessage: "请填写真实成本价；如果只是观察股票，可以先加入股票池。",
+        thesisPlaceholder: "记录你的买入逻辑、观察条件或风险点",
         mockSourceHint: "当前使用演示行情，名称和价格不代表真实市场。",
         officialSourceHint: "当前使用通达信官方 Token 数据源，需要本地配置 TDX_API_KEY。",
         realSourceHint: "当前使用通达信/真实行情源。若通达信 7709 连接失败，可临时切换 Eastmoney 兜底。",
@@ -329,6 +332,9 @@ def index_html() -> str:
         mockSource: "Mock Demo",
         quoteLoaded: "Quote loaded",
         quoteFailed: "Quote failed",
+        quoteLoadedWithPlan: "Quote loaded and a plan draft was generated",
+        requiredCostMessage: "Enter your actual cost price; for watch-only names, add it to the pool first.",
+        thesisPlaceholder: "Record your thesis, watch conditions, or risk notes",
         mockSourceHint: "Demo quotes are synthetic and do not represent the real market.",
         officialSourceHint: "Using the official Tongdaxin Token source. Local TDX_API_KEY is required.",
         realSourceHint: "Using Tongdaxin or a real market data source. If Tongdaxin 7709 fails, switch to Eastmoney fallback.",
@@ -497,6 +503,7 @@ def index_html() -> str:
     let cachedSignals = [];
     let autoNameValue = "";
     let nameEditedManually = false;
+    let planEditedManually = false;
 
     async function checkHealth() {
       const health = await api("/health");
@@ -505,12 +512,17 @@ def index_html() -> str:
     async function addHolding() {
       const quote = await hydrateSymbolFromMarket(false);
       if (!quote && marketSource() !== "mock") return;
+      const costPrice = numberValue("cost_price");
+      if (!costPrice || costPrice <= 0) {
+        document.getElementById("quoteStatus").textContent = t("requiredCostMessage");
+        return;
+      }
       const payload = {
         symbol: document.getElementById("symbol").value,
         name: document.getElementById("name").value,
         market: "SH",
         quantity: numberValue("quantity"),
-        cost_price: numberValue("cost_price"),
+        cost_price: costPrice,
         stop_loss: numberValue("stop_loss"),
         take_profit: numberValue("take_profit"),
         max_loss_pct: 8,
@@ -672,6 +684,9 @@ def index_html() -> str:
     function onNameChanged() {
       nameEditedManually = true;
     }
+    function onPlanChanged() {
+      planEditedManually = true;
+    }
     function marketSource() {
       return document.getElementById("marketSourceSelect").value || "tongdaxin";
     }
@@ -691,7 +706,9 @@ def index_html() -> str:
           autoNameValue = marketName;
           nameEditedManually = false;
         }
-        document.getElementById("quoteStatus").textContent = `${t("quoteLoaded")}: ${marketName || symbol} ${formatPrice(quote.price)} (${quote.source})`;
+        const planDrafted = draftPlanFromQuote(quote);
+        const statusKey = planDrafted ? "quoteLoadedWithPlan" : "quoteLoaded";
+        document.getElementById("quoteStatus").textContent = `${t(statusKey)}: ${marketName || symbol} ${formatPrice(quote.price)} (${quote.source})`;
         return quote;
       } catch (error) {
         document.getElementById("quoteStatus").textContent = `${t("quoteFailed")}: ${error.message}`;
@@ -724,6 +741,20 @@ def index_html() -> str:
       autoNameValue = "";
       nameInput.value = autoNameValue;
       nameEditedManually = false;
+    }
+    function draftPlanFromQuote(quote) {
+      if (planEditedManually) return false;
+      const price = Number(quote?.price);
+      if (!Number.isFinite(price) || price <= 0) return false;
+      document.getElementById("cost_price").value = formatDraftPrice(price);
+      document.getElementById("stop_loss").value = formatDraftPrice(price * 0.92);
+      document.getElementById("take_profit").value = formatDraftPrice(price * 1.12);
+      return true;
+    }
+    function formatDraftPrice(value) {
+      const fixed = Number(value).toFixed(2);
+      if (fixed.endsWith(".00")) return fixed.slice(0, -3);
+      return fixed.endsWith("0") ? fixed.slice(0, -1) : fixed;
     }
     function renderSourceStatus() {
       const source = marketSource();
