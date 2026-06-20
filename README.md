@@ -41,13 +41,16 @@ python3 scripts/run_api.py
 完整 FastAPI 环境：
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r services/api/requirements.txt
+pip install "eltdx[mcp]"
 cp .env.example .env
 python scripts/init_db.py
 uvicorn services.api.app.main:app --reload --host 127.0.0.1 --port 8765
 ```
+
+`eltdx` 需要 Python 3.10+。如果系统 `python3` 是 3.9，先安装/指定 Python 3.10 以上版本创建 `.venv`，否则通达信源会因为缺少 `eltdx` 而不可用。
 
 健康检查：
 

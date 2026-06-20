@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -208,9 +209,15 @@ class McpStdioClient:
 
 
 def eltdx_mcp_config() -> McpServerConfig:
-    command_text = os.environ.get("TDX_ELTDX_MCP_COMMAND", "eltdx-mcp")
+    command_text = os.environ.get("TDX_ELTDX_MCP_COMMAND")
+    command: list[str]
+    if command_text is None:
+        local_command = _project_root() / ".venv" / "bin" / "eltdx-mcp"
+        command = [str(local_command)] if local_command.exists() else ["eltdx-mcp"]
+    else:
+        command = shlex.split(command_text)
     timeout = float(os.environ.get("TDX_MCP_TIMEOUT_SECONDS", "15"))
-    return McpServerConfig(command=shlex.split(command_text), timeout_seconds=timeout)
+    return McpServerConfig(command=command, timeout_seconds=timeout)
 
 
 def list_eltdx_mcp_tools(config: McpServerConfig | None = None) -> list[dict[str, Any]]:
@@ -227,3 +234,7 @@ def call_eltdx_mcp_tool(
     with McpStdioClient(config or eltdx_mcp_config()) as client:
         client.initialize()
         return client.call_tool(tool_name, arguments)
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[3]

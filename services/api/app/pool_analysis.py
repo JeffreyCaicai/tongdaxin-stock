@@ -291,14 +291,16 @@ def _argument_value_for_key(key: str, symbol: str, property_schema: Any) -> Any:
     if lower_key in {"symbols", "stocks"}:
         return [symbol]
     if lower_key in {"code", "stock_code", "security_code", "sec_code"}:
-        return symbol
+        return tdx_code
     if lower_key in {"codes", "stock_codes", "security_codes"}:
         schema_type = (
             property_schema.get("type")
             if isinstance(property_schema, Mapping)
             else None
         )
-        return [symbol] if schema_type == "array" else symbol
+        return [tdx_code] if schema_type == "array" else tdx_code
+    if lower_key in {"seed_code"}:
+        return tdx_code
     if lower_key in {"tdx_code", "full_code"}:
         return tdx_code
     if lower_key in {"tdx_codes", "full_codes"}:

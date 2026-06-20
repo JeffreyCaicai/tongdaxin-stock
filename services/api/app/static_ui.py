@@ -238,7 +238,7 @@ def index_html() -> str:
         quoteLoaded: "已读取行情",
         quoteFailed: "行情读取失败",
         mockSourceHint: "当前使用演示行情，名称和价格不代表真实市场。",
-        realSourceHint: "当前使用通达信/真实行情源。",
+        realSourceHint: "当前使用通达信/真实行情源。若通达信 7709 连接失败，可临时切换 Eastmoney 兜底。",
         analyzePool: "分析当前池",
         generatePoolSignals: "生成今日信号",
         dailyReview: "每日复盘",
@@ -326,7 +326,7 @@ def index_html() -> str:
         quoteLoaded: "Quote loaded",
         quoteFailed: "Quote failed",
         mockSourceHint: "Demo quotes are synthetic and do not represent the real market.",
-        realSourceHint: "Using Tongdaxin or a real market data source.",
+        realSourceHint: "Using Tongdaxin or a real market data source. If Tongdaxin 7709 fails, switch to Eastmoney fallback.",
         analyzePool: "Analyze Pool",
         generatePoolSignals: "Generate Signals",
         dailyReview: "Daily Review",
@@ -443,7 +443,16 @@ def index_html() -> str:
 
     async function api(path, options) {
       const response = await fetch(path, options);
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) {
+        const text = await response.text();
+        try {
+          const payload = JSON.parse(text);
+          throw new Error(payload.detail || text);
+        } catch (error) {
+          if (error instanceof SyntaxError) throw new Error(text);
+          throw error;
+        }
+      }
       return response.json();
     }
     function t(key) {

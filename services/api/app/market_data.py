@@ -192,8 +192,15 @@ class EltdxMarketDataProvider:
         TdxClient, to_jsonable = _load_eltdx()
         normalized_symbol = normalize_symbol(symbol)
         tdx_code = _tdx_code(normalized_symbol)
-        with TdxClient(timeout=5) as client:
-            raw_quote = client.get_quote([tdx_code])[0]
+        try:
+            with TdxClient(timeout=5) as client:
+                raw_quote = client.get_quote([tdx_code])[0]
+        except Exception as exc:
+            raise MarketDataError(
+                f"eltdx quote request failed for {normalized_symbol}: {exc}. "
+                "This usually means the Tongdaxin server connection was reset, timed out, "
+                "or is temporarily unavailable."
+            ) from exc
         data = to_jsonable(raw_quote) if to_jsonable else _jsonable_object(raw_quote)
 
         price = _first_required_float(
@@ -232,8 +239,15 @@ class EltdxMarketDataProvider:
         TdxClient, to_jsonable = _load_eltdx()
         normalized_symbol = normalize_symbol(symbol)
         tdx_code = _tdx_code(normalized_symbol)
-        with TdxClient(timeout=5) as client:
-            series = client.get_kline(_tdx_period(period), tdx_code, count=limit)
+        try:
+            with TdxClient(timeout=5) as client:
+                series = client.get_kline(_tdx_period(period), tdx_code, count=limit)
+        except Exception as exc:
+            raise MarketDataError(
+                f"eltdx kline request failed for {normalized_symbol}: {exc}. "
+                "This usually means the Tongdaxin server connection was reset, timed out, "
+                "or is temporarily unavailable."
+            ) from exc
         data = to_jsonable(series) if to_jsonable else _jsonable_object(series)
         raw_bars = data.get("bars") if isinstance(data, dict) else data
         if not raw_bars:
