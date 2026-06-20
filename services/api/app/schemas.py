@@ -230,6 +230,12 @@ class StockPoolMcpAnalysisRequest(BaseModel):
     profile_arguments: dict[str, Any] | None = None
 
 
+class StockPoolMarketAnalysisRequest(BaseModel):
+    source: str = "tdx-official"
+    persist: bool = True
+    max_symbols: int = Field(default=30, ge=1, le=100)
+
+
 class IndicatorSnapshotOut(BaseModel):
     symbol: str
     source: str

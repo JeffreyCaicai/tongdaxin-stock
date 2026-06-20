@@ -268,6 +268,8 @@ def index_html() -> str:
         generatedSignals: "已生成信号",
         poolAnalysisFailed: "股票池分析失败",
         mcpToolPlan: "MCP 工具计划",
+        marketDataSource: "行情源",
+        quoteOkCount: "已取行情",
         missingQuotes: "缺行情股票",
         failedSymbols: "失败股票",
         nextSteps: "下一步",
@@ -362,6 +364,8 @@ def index_html() -> str:
         generatedSignals: "Generated signals",
         poolAnalysisFailed: "Pool analysis failed",
         mcpToolPlan: "MCP tool plan",
+        marketDataSource: "Market source",
+        quoteOkCount: "Quotes loaded",
         missingQuotes: "Missing quotes",
         failedSymbols: "Failed symbols",
         nextSteps: "Next steps",
@@ -591,10 +595,10 @@ def index_html() -> str:
       if (!poolId) return;
       document.getElementById("review").innerHTML = `<p class="summary">${t("checking")}</p>`;
       try {
-        cachedReview = await api(`/stock-pools/${poolId}/mcp-analysis`, {
+        cachedReview = await api(`/stock-pools/${poolId}/market-analysis`, {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({persist: true, max_symbols: 30, include_profile: true})
+          body: JSON.stringify({source: marketSource(), persist: true, max_symbols: 30})
         });
         renderPoolAnalysis(cachedReview);
       } catch (error) {
@@ -716,7 +720,7 @@ def index_html() -> str:
     }
     function renderDailyReview(report) {
       const payload = report.payload || report;
-      if (payload.report_type === "stock_pool_mcp_analysis") {
+      if (["stock_pool_mcp_analysis", "stock_pool_market_analysis"].includes(payload.report_type)) {
         renderPoolAnalysis(report);
         return;
       }
@@ -742,19 +746,30 @@ def index_html() -> str:
       const payload = report.payload || report;
       const quality = payload.data_quality || {};
       const plan = payload.tool_plan || {};
+      const isMarketAnalysis = payload.report_type === "stock_pool_market_analysis";
       const rows = (payload.items || []).map(item => ({
         symbol: item.symbol,
         name: item.name || "",
         action_hint: enumLabel(item.action_hint),
-        price: item.mcp_calls?.quote?.fields?.price ?? ""
+        price: item.quote?.fields?.price ?? item.mcp_calls?.quote?.fields?.price ?? ""
       }));
-      document.getElementById("review").innerHTML = `
-        <p class="summary">${escapeHtml(payload.summary || "")}</p>
-        <div class="metric-grid" style="margin-top:10px">
+      const metricCells = isMarketAnalysis
+        ? `
+          <div class="metric"><b>${t("marketDataSource")}</b>${escapeHtml(plan.data_source || plan.quote_tool || "-")}</div>
+          <div class="metric"><b>${t("quoteOkCount")}</b>${quality.quote_count ?? 0}</div>
+          <div class="metric"><b>${t("missingQuotes")}</b>${quality.missing_quote_count ?? 0}</div>
+          <div class="metric"><b>${t("nextSteps")}</b>${(payload.next_steps || []).map(enumLabel).join(", ") || "-"}</div>
+        `
+        : `
           <div class="metric"><b>${t("mcpToolPlan")}</b>${escapeHtml(plan.quote_tool || "-")} / ${escapeHtml(plan.profile_tool || "-")}</div>
           <div class="metric"><b>${t("missingQuotes")}</b>${quality.missing_quote_count ?? 0}</div>
           <div class="metric"><b>${t("failedSymbols")}</b>${(quality.failed_symbols || []).join(", ") || "-"}</div>
           <div class="metric"><b>${t("nextSteps")}</b>${(payload.next_steps || []).map(enumLabel).join(", ") || "-"}</div>
+        `;
+      document.getElementById("review").innerHTML = `
+        <p class="summary">${escapeHtml(payload.summary || "")}</p>
+        <div class="metric-grid" style="margin-top:10px">
+          ${metricCells}
         </div>
         <div style="margin-top:12px">${table(rows, ["symbol", "name", "action_hint", "price"])}</div>
       `;

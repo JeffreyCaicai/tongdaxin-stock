@@ -7,10 +7,57 @@ import unittest
 from pathlib import Path
 
 from services.api.app.mcp_tools import McpServerConfig
-from services.api.app.pool_analysis import generate_stock_pool_mcp_analysis
+from services.api.app.pool_analysis import (
+    generate_stock_pool_market_analysis,
+    generate_stock_pool_mcp_analysis,
+)
 
 
 class StockPoolMcpAnalysisTests(unittest.TestCase):
+    def test_market_analysis_uses_quotes_without_mcp_tools(self) -> None:
+        report = generate_stock_pool_market_analysis(
+            pool={"id": 1, "name": "默认股票池", "description": None},
+            holdings=[],
+            watchlist=[
+                {
+                    "id": 20,
+                    "symbol": "688630",
+                    "name": "芯碁微装",
+                    "priority": 1,
+                    "status": "watching",
+                },
+                {
+                    "id": 21,
+                    "symbol": "603337",
+                    "name": "杰克科技",
+                    "priority": 2,
+                    "status": "watching",
+                },
+            ],
+            quotes={
+                "688630": {
+                    "snapshot_id": 1,
+                    "symbol": "688630",
+                    "name": "芯碁微装",
+                    "source": "tdx-official",
+                    "price": 502.0,
+                    "fetched_at": "now",
+                }
+            },
+            source="tdx-official",
+            failed_symbols=["603337"],
+            max_symbols=10,
+        )
+
+        self.assertEqual(report["report_type"], "stock_pool_market_analysis")
+        self.assertIn("已用 tdx-official 分析股票池", report["summary"])
+        self.assertEqual(report["tool_plan"]["data_source"], "tdx-official")
+        self.assertEqual(report["data_quality"]["quote_count"], 1)
+        self.assertEqual(report["data_quality"]["missing_quote_count"], 1)
+        self.assertEqual(report["items"][0]["quote"]["fields"]["price"], 502.0)
+        self.assertEqual(report["items"][0]["action_hint"], "watch_pool_candidate")
+        self.assertEqual(report["items"][1]["action_hint"], "complete_market_data")
+
     def test_pool_analysis_calls_selected_mcp_tools_for_pool_symbols(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             report = generate_stock_pool_mcp_analysis(

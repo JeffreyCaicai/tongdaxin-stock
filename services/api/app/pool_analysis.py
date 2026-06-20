@@ -103,6 +103,114 @@ def generate_stock_pool_mcp_analysis(
     )
 
 
+def generate_stock_pool_market_analysis(
+    *,
+    pool: dict[str, Any],
+    holdings: list[dict[str, Any]],
+    watchlist: list[dict[str, Any]],
+    quotes: dict[str, dict[str, Any]],
+    source: str,
+    failed_symbols: list[str] | None = None,
+    max_symbols: int = 30,
+) -> dict[str, Any]:
+    max_symbols = max(1, min(int(max_symbols), 100))
+    pool_symbols = _pool_symbol_order(holdings=holdings, watchlist=watchlist)[:max_symbols]
+    holding_by_symbol = {
+        normalize_symbol(str(holding["symbol"])): holding for holding in holdings
+    }
+    watchlist_by_symbol = {
+        normalize_symbol(str(item["symbol"])): item for item in watchlist
+    }
+
+    items: list[dict[str, Any]] = []
+    for symbol in pool_symbols:
+        quote = quotes.get(symbol)
+        price = quote.get("price") if quote else None
+        holding = holding_by_symbol.get(symbol)
+        watchlist_item = watchlist_by_symbol.get(symbol)
+        name = _first_non_none(
+            quote.get("name") if quote else None,
+            holding.get("name") if holding else None,
+            watchlist_item.get("name") if watchlist_item else None,
+        )
+        items.append(
+            {
+                "symbol": symbol,
+                "name": name,
+                "position": _position_context(holding, price),
+                "watchlist": _watchlist_context(watchlist_item),
+                "quote": {
+                    "status": "success" if quote else "missing",
+                    "fields": {
+                        "price": price,
+                        "name": quote.get("name") if quote else None,
+                        "source": quote.get("source") if quote else source,
+                        "snapshot_id": quote.get("snapshot_id") if quote else None,
+                        "fetched_at": quote.get("fetched_at") if quote else None,
+                    },
+                },
+                "mcp_calls": {},
+                "action_hint": _action_hint(
+                    holding=holding,
+                    watchlist_item=watchlist_item,
+                    price=price,
+                ),
+            }
+        )
+
+    failed_symbols = [normalize_symbol(symbol) for symbol in (failed_symbols or [])]
+    missing_quote_items = [
+        item for item in items if item["action_hint"] == "complete_market_data"
+    ]
+    action_counts: dict[str, int] = {}
+    for item in items:
+        action = item["action_hint"]
+        action_counts[action] = action_counts.get(action, 0) + 1
+
+    pool_name = pool.get("name") or f"Pool {pool.get('id')}"
+    quote_count = len(items) - len(missing_quote_items)
+    return {
+        "report_type": "stock_pool_market_analysis",
+        "symbol": None,
+        "generated_at": utc_now(),
+        "summary": (
+            f"已用 {source} 分析股票池“{pool_name}”：共 {len(items)} 只，"
+            f"{quote_count} 只有行情，{len(missing_quote_items)} 只需补齐行情。"
+        ),
+        "pool": {
+            "id": pool.get("id"),
+            "name": pool_name,
+            "description": pool.get("description"),
+        },
+        "scope": {
+            "symbol_limit": max_symbols,
+            "symbol_count": len(items),
+            "holding_count": len(holdings),
+            "watchlist_count": len(watchlist),
+        },
+        "tool_plan": {
+            "server": None,
+            "data_source": source,
+            "quote_tool": source,
+            "profile_tool": None,
+            "missing_tools": [],
+        },
+        "action_counts": action_counts,
+        "data_quality": {
+            "failed_symbol_count": len(failed_symbols),
+            "missing_quote_count": len(missing_quote_items),
+            "quote_count": quote_count,
+            "failed_symbols": failed_symbols,
+        },
+        "items": items,
+        "next_steps": _next_steps(
+            missing_quote_count=len(missing_quote_items),
+            failed_count=len(failed_symbols),
+            action_counts=action_counts,
+        ),
+    }
+
+
 def _default_config() -> McpServerConfig:
     from .mcp_tools import eltdx_mcp_config
 

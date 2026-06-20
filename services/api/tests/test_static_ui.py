@@ -59,7 +59,8 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('class="toolbar pool-actions"', html)
         self.assertIn('onclick="analyzePool()"', html)
         self.assertIn("function analyzePool()", html)
-        self.assertIn("/mcp-analysis", html)
+        self.assertIn("/market-analysis", html)
+        self.assertIn("marketDataSource", html)
         self.assertIn("renderPoolAnalysis", html)
         self.assertIn('onclick="generateSignals()"', html)
 

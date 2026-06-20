@@ -17,7 +17,10 @@ from .database import get_db, init_db
 from .indicators import calculate_indicator_snapshot
 from .market_data import MarketDataError, get_market_data_provider
 from .mcp_tools import McpToolError, call_eltdx_mcp_tool, list_eltdx_mcp_tools
-from .pool_analysis import generate_stock_pool_mcp_analysis
+from .pool_analysis import (
+    generate_stock_pool_market_analysis,
+    generate_stock_pool_mcp_analysis,
+)
 from .repository import (
     create_analysis_report,
     create_backtest,
@@ -75,6 +78,7 @@ from .schemas import (
     SignalEvaluateRequest,
     SignalOut,
     SignalReviewOut,
+    StockPoolMarketAnalysisRequest,
     StockPoolMcpAnalysisRequest,
     StockPoolCreate,
     StockPoolOut,
@@ -981,6 +985,55 @@ def api_analyze_stock_pool_with_mcp(
         )
     except McpToolError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _save_report(db, report=report, persist=payload.persist)
+
+
+@app.post("/stock-pools/{pool_id}/market-analysis", response_model=ReportOut)
+def api_analyze_stock_pool_with_market_source(
+    pool_id: int,
+    payload: StockPoolMarketAnalysisRequest,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    pool = get_stock_pool(db, pool_id)
+    if pool is None:
+        raise HTTPException(status_code=404, detail="Stock pool not found")
+
+    symbols = pool_symbols(db, pool_id)[: payload.max_symbols]
+    quotes: dict[str, dict] = {}
+    failed_symbols: list[str] = []
+    watchlist = list_watchlist(db, pool_id=pool_id)
+    watchlist_by_symbol = {
+        normalize_symbol(str(item["symbol"])): item for item in watchlist
+    }
+
+    for symbol in symbols:
+        normalized_symbol = normalize_symbol(symbol)
+        try:
+            quote = _fetch_quote_and_cache(
+                db,
+                symbol=normalized_symbol,
+                source=payload.source,
+            )
+        except HTTPException:
+            failed_symbols.append(normalized_symbol)
+            continue
+        quotes[normalized_symbol] = quote
+        watchlist_item = watchlist_by_symbol.get(normalized_symbol)
+        if watchlist_item and quote.get("name") and not watchlist_item.get("name"):
+            update_watchlist_item(db, int(watchlist_item["id"]), {"name": quote["name"]})
+
+    refreshed_watchlist = list_watchlist(db, pool_id=pool_id)
+    report = generate_stock_pool_market_analysis(
+        pool=pool,
+        holdings=filter_rows_by_symbols(
+            latest_by_symbol(list_holdings(db)), symbols
+        ),
+        watchlist=refreshed_watchlist,
+        quotes=quotes,
+        source=payload.source,
+        failed_symbols=failed_symbols,
+        max_symbols=payload.max_symbols,
+    )
     return _save_report(db, report=report, persist=payload.persist)
 
 
