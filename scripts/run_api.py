@@ -30,6 +30,7 @@ from services.api.app.repository import (
 )
 from services.api.app.reports import generate_daily_review
 from services.api.app.signal_engine import evaluate_holding_signal
+from services.api.app.static_ui import index_html
 
 
 def main() -> None:
@@ -63,7 +64,7 @@ class FallbackHandler(BaseHTTPRequestHandler):
 
         try:
             if path == "/":
-                self._send_html(_index_html())
+                self._send_html(index_html())
             elif path == "/health":
                 self._send_json({"status": "ok", "mode": "fallback"})
             elif path == "/holdings":
@@ -325,33 +326,6 @@ def _signal_row_to_output(row: dict) -> dict:
 def _query_value(query: dict[str, list[str]], key: str, default: str) -> str:
     values = query.get(key)
     return values[0] if values else default
-
-
-def _index_html() -> str:
-    return """<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Tongdaxin Stock Local API</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 32px; line-height: 1.5; }
-    code { background: #f2f2f2; padding: 2px 5px; border-radius: 4px; }
-  </style>
-</head>
-<body>
-  <h1>Tongdaxin Stock Local API</h1>
-  <p>Fallback API is running without external Python dependencies.</p>
-  <ul>
-    <li><code>GET /health</code></li>
-    <li><code>GET /holdings</code>, <code>POST /holdings</code></li>
-    <li><code>GET /market/quote/600519</code></li>
-    <li><code>GET /market/kline/600519?limit=120</code></li>
-    <li><code>POST /workbench/actions/from-market</code></li>
-    <li><code>GET /reports/daily-review</code></li>
-    <li><code>POST /backtests/600519</code></li>
-  </ul>
-</body>
-</html>"""
 
 
 if __name__ == "__main__":

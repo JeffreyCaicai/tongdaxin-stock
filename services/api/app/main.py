@@ -4,6 +4,7 @@ import json
 import sqlite3
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi.responses import HTMLResponse
 
 from .backtest import run_ma_volume_backtest, review_signal_outcomes
 from .csv_io import (
@@ -69,6 +70,7 @@ from .schemas import (
     WorkbenchMarketActionRequest,
 )
 from .signal_engine import evaluate_holding_signal
+from .static_ui import index_html
 
 
 app = FastAPI(
@@ -86,6 +88,11 @@ def on_startup() -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> str:
+    return index_html()
 
 
 def _signal_row_to_output(row: dict) -> dict:

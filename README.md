@@ -34,6 +34,8 @@ scripts/                   # 本地维护脚本
 python3 scripts/run_api.py
 ```
 
+启动后打开 `http://127.0.0.1:8765/`，可以使用本地工作台录入持仓、生成信号、查看日报并运行回测。
+
 完整 FastAPI 环境：
 
 ```bash
