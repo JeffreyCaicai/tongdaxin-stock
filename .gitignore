@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local config and data
+.env
+data/local.db
+data/*.db
+data/cache/*
+!data/cache/.gitkeep
+
+# Node / desktop
+node_modules/
+dist/
+build/
+.turbo/
+
+# Tauri / Rust
+target/
+Cargo.lock
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
