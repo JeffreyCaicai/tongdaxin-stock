@@ -83,6 +83,9 @@ def index_html() -> str:
     .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 8px; }
     .metric { background: #f7f8f5; border-radius: 6px; padding: 10px; }
     .metric b { display: block; font-size: 12px; color: #5a6255; margin-bottom: 3px; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    .panel-head h2 { margin: 0; }
+    .inline-select { max-width: 150px; padding: 6px 8px; font-size: 13px; }
     ul { margin: 8px 0 0; padding-left: 18px; }
     @media (max-width: 840px) {
       header { align-items: flex-start; flex-direction: column; }
@@ -138,7 +141,14 @@ def index_html() -> str:
           <div id="holdings"></div>
         </div>
         <div class="panel">
-          <h2 data-i18n="signals">信号</h2>
+          <div class="panel-head">
+            <h2 data-i18n="signals">信号</h2>
+            <select class="inline-select" id="signalView" onchange="renderSignals(cachedSignals)">
+              <option value="latest" data-i18n="latestSignals">最新</option>
+              <option value="history" data-i18n="historySignals">历史</option>
+            </select>
+          </div>
+          <p class="status" id="signalHint"></p>
           <div id="signals"></div>
         </div>
         <div class="panel">
@@ -177,6 +187,13 @@ def index_html() -> str:
         backtest: "回测",
         noData: "暂无数据。",
         generatedSignals: "已生成信号",
+        savedHolding: "已保存持仓",
+        updatedHolding: "已更新已有持仓",
+        duplicateHoldingNote: "检测到相同股票代码，已更新原持仓，避免重复记录。",
+        latestSignals: "最新",
+        historySignals: "历史",
+        latestSignalsHint: "默认显示每只股票最新一条信号，避免重复历史记录干扰判断。",
+        historySignalsHint: "正在显示最近保存的历史信号记录。",
         highRiskSymbols: "高风险股票",
         failedFetchCount: "数据拉取失败数",
         fetchOk: "未发现数据拉取失败",
@@ -199,6 +216,7 @@ def index_html() -> str:
         action: "动作",
         risk_level: "风险",
         price: "价格",
+        created_at: "生成时间",
         cost_price: "成本价",
         stop_loss: "止损价",
         take_profit: "止盈价"
@@ -226,6 +244,13 @@ def index_html() -> str:
         backtest: "Backtest",
         noData: "No data yet.",
         generatedSignals: "Generated signals",
+        savedHolding: "Holding saved",
+        updatedHolding: "Existing holding updated",
+        duplicateHoldingNote: "Same symbol detected; updated the existing holding to avoid duplicates.",
+        latestSignals: "Latest",
+        historySignals: "History",
+        latestSignalsHint: "Showing the latest signal per symbol to avoid duplicate history noise.",
+        historySignalsHint: "Showing recently saved historical signal records.",
         highRiskSymbols: "High-risk symbols",
         failedFetchCount: "Failed fetches",
         fetchOk: "No failed data fetches",
@@ -248,6 +273,7 @@ def index_html() -> str:
         action: "Action",
         risk_level: "Risk",
         price: "Price",
+        created_at: "Created At",
         cost_price: "Cost Price",
         stop_loss: "Stop Loss",
         take_profit: "Take Profit"
@@ -307,34 +333,39 @@ def index_html() -> str:
     }
     let cachedReview = null;
     let cachedBacktest = null;
+    let cachedHoldings = [];
+    let cachedSignals = [];
 
     async function checkHealth() {
       const health = await api("/health");
       document.getElementById("health").textContent = health.mode ? `${t("running")} (${t("mode")}: ${health.mode})` : t("running");
     }
     async function addHolding() {
-      await api("/holdings", {
-        method: "POST",
+      const payload = {
+        symbol: document.getElementById("symbol").value,
+        name: document.getElementById("name").value,
+        market: "SH",
+        quantity: numberValue("quantity"),
+        cost_price: numberValue("cost_price"),
+        stop_loss: numberValue("stop_loss"),
+        take_profit: numberValue("take_profit"),
+        max_loss_pct: 8,
+        initial_thesis: document.getElementById("initial_thesis").value
+      };
+      const existing = cachedHoldings.find(row => row.symbol === payload.symbol.trim().toUpperCase());
+      await api(existing ? `/holdings/${existing.id}` : "/holdings", {
+        method: existing ? "PATCH" : "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          symbol: document.getElementById("symbol").value,
-          name: document.getElementById("name").value,
-          market: "SH",
-          quantity: numberValue("quantity"),
-          cost_price: numberValue("cost_price"),
-          stop_loss: numberValue("stop_loss"),
-          take_profit: numberValue("take_profit"),
-          max_loss_pct: 8,
-          initial_thesis: document.getElementById("initial_thesis").value
-        })
+        body: JSON.stringify(payload)
       });
+      document.getElementById("review").innerHTML = `<p class="summary">${existing ? t("updatedHolding") + "。 " + t("duplicateHoldingNote") : t("savedHolding")}</p>`;
       await refreshAll();
     }
     async function refreshAll() {
-      const holdings = await api("/holdings");
-      renderHoldings(holdings);
-      const signals = await api("/signals");
-      renderSignals(signals);
+      cachedHoldings = await api("/holdings");
+      renderHoldings(cachedHoldings);
+      cachedSignals = await api("/signals");
+      renderSignals(cachedSignals);
     }
     async function generateSignals() {
       const result = await api("/workbench/actions/from-market", {
@@ -362,13 +393,17 @@ def index_html() -> str:
       document.getElementById("holdings").innerHTML = table(rows, ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"]);
     }
     function renderSignals(rows) {
-      const mapped = rows.slice(0, 12).map(row => ({
+      const view = document.getElementById("signalView").value;
+      const selectedRows = view === "latest" ? latestBySymbol(rows) : rows.slice(0, 12);
+      document.getElementById("signalHint").textContent = view === "latest" ? t("latestSignalsHint") : t("historySignalsHint");
+      const mapped = selectedRows.map(row => ({
         ...row,
         signal_type: enumLabel(row.signal_type),
         action: enumLabel(row.action),
-        risk_level: enumLabel(row.risk_level)
+        risk_level: enumLabel(row.risk_level),
+        created_at: shortTime(row.created_at)
       }));
-      document.getElementById("signals").innerHTML = table(mapped, ["symbol", "signal_type", "action", "risk_level", "price"]);
+      document.getElementById("signals").innerHTML = table(mapped, ["symbol", "signal_type", "action", "risk_level", "price", "created_at"]);
     }
     function renderDailyReview(report) {
       const payload = report.payload || report;
@@ -416,6 +451,27 @@ def index_html() -> str:
       const head = fields.map(field => `<th>${t(field)}</th>`).join("");
       const body = rows.map(row => `<tr>${fields.map(field => `<td>${row[field] ?? ""}</td>`).join("")}</tr>`).join("");
       return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+    }
+    function latestBySymbol(rows) {
+      const seen = new Set();
+      const latest = [];
+      for (const row of rows) {
+        if (seen.has(row.symbol)) continue;
+        seen.add(row.symbol);
+        latest.push(row);
+      }
+      return latest;
+    }
+    function shortTime(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString(currentLanguage === "zh" ? "zh-CN" : "en-US", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
     }
     function rerenderCachedPanels() {
       if (cachedReview) renderDailyReview(cachedReview);
