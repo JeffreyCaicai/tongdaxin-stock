@@ -3,11 +3,11 @@ from __future__ import annotations
 
 def index_html() -> str:
     return """<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tongdaxin Stock Workbench</title>
+  <title>通达信股票工作台</title>
   <style>
     :root {
       color-scheme: light;
@@ -20,6 +20,7 @@ def index_html() -> str:
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 16px;
       padding: 18px 24px;
       border-bottom: 1px solid #d9ded4;
       background: #ffffff;
@@ -41,15 +42,15 @@ def index_html() -> str:
     section { padding: 18px 24px; }
     h2 { font-size: 15px; margin: 0 0 12px; }
     label { display: block; font-size: 12px; color: #5a6255; margin: 12px 0 5px; }
-    input, textarea {
+    input, textarea, select {
       box-sizing: border-box;
-      width: 100%;
       border: 1px solid #cfd6c9;
       border-radius: 6px;
       padding: 9px 10px;
       font: inherit;
       background: #fbfcfa;
     }
+    input, textarea { width: 100%; }
     textarea { min-height: 68px; resize: vertical; }
     button {
       border: 1px solid #2f5d50;
@@ -64,6 +65,7 @@ def index_html() -> str:
       background: #ffffff;
       color: #2f5d50;
     }
+    .header-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 14px; }
     .panel {
@@ -76,17 +78,14 @@ def index_html() -> str:
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { text-align: left; border-bottom: 1px solid #edf0ea; padding: 8px 6px; vertical-align: top; }
     th { color: #5a6255; font-weight: 600; }
-    pre {
-      white-space: pre-wrap;
-      word-break: break-word;
-      background: #f7f8f5;
-      border-radius: 6px;
-      padding: 10px;
-      max-height: 360px;
-      overflow: auto;
-    }
     .status { font-size: 13px; color: #5a6255; }
+    .summary { background: #f7f8f5; border-radius: 6px; padding: 10px; margin: 0; }
+    .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 8px; }
+    .metric { background: #f7f8f5; border-radius: 6px; padding: 10px; }
+    .metric b { display: block; font-size: 12px; color: #5a6255; margin-bottom: 3px; }
+    ul { margin: 8px 0 0; padding-left: 18px; }
     @media (max-width: 840px) {
+      header { align-items: flex-start; flex-direction: column; }
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid #d9ded4; }
       .grid { grid-template-columns: 1fr; }
@@ -95,70 +94,211 @@ def index_html() -> str:
 </head>
 <body>
   <header>
-    <h1>Tongdaxin Stock Workbench</h1>
-    <span class="status" id="health">checking...</span>
+    <h1 data-i18n="appTitle">通达信股票工作台</h1>
+    <div class="header-tools">
+      <label for="languageSelect" data-i18n="language" style="margin:0">语言</label>
+      <select id="languageSelect" onchange="setLanguage(this.value)">
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+      </select>
+      <span class="status" id="health" data-i18n="checking">检查中...</span>
+    </div>
   </header>
   <main>
     <aside>
-      <h2>Add Holding</h2>
-      <label>Symbol</label>
+      <h2 data-i18n="addHolding">新增持仓</h2>
+      <label data-i18n="symbol">股票代码</label>
       <input id="symbol" value="600519">
-      <label>Name</label>
+      <label data-i18n="name">名称</label>
       <input id="name" value="Mock Moutai">
-      <label>Quantity</label>
+      <label data-i18n="quantity">数量</label>
       <input id="quantity" type="number" value="100">
-      <label>Cost Price</label>
+      <label data-i18n="costPrice">成本价</label>
       <input id="cost_price" type="number" value="95">
-      <label>Stop Loss</label>
+      <label data-i18n="stopLoss">止损价</label>
       <input id="stop_loss" type="number" value="88">
-      <label>Take Profit</label>
+      <label data-i18n="takeProfit">止盈价</label>
       <input id="take_profit" type="number" value="120">
-      <label>Thesis</label>
+      <label data-i18n="thesis">买入理由</label>
       <textarea id="initial_thesis">Manual plan with mock data.</textarea>
       <div class="toolbar" style="margin-top:14px">
-        <button onclick="addHolding()">Add</button>
-        <button class="secondary" onclick="refreshAll()">Refresh</button>
+        <button onclick="addHolding()" data-i18n="add">添加</button>
+        <button class="secondary" onclick="refreshAll()" data-i18n="refresh">刷新</button>
       </div>
     </aside>
     <section>
       <div class="toolbar">
-        <button onclick="generateSignals()">Generate Signals</button>
-        <button class="secondary" onclick="dailyReview()">Daily Review</button>
-        <button class="secondary" onclick="runBacktest()">Run Backtest</button>
+        <button onclick="generateSignals()" data-i18n="generateSignals">生成今日信号</button>
+        <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">每日复盘</button>
+        <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">运行回测</button>
       </div>
       <div class="grid">
         <div class="panel">
-          <h2>Holdings</h2>
+          <h2 data-i18n="holdings">持仓</h2>
           <div id="holdings"></div>
         </div>
         <div class="panel">
-          <h2>Signals</h2>
+          <h2 data-i18n="signals">信号</h2>
           <div id="signals"></div>
         </div>
         <div class="panel">
-          <h2>Daily Review</h2>
-          <pre id="review"></pre>
+          <h2 data-i18n="dailyReview">每日复盘</h2>
+          <div id="review"></div>
         </div>
         <div class="panel">
-          <h2>Backtest</h2>
-          <pre id="backtest"></pre>
+          <h2 data-i18n="backtest">回测</h2>
+          <div id="backtest"></div>
         </div>
       </div>
     </section>
   </main>
   <script>
+    const translations = {
+      zh: {
+        appTitle: "通达信股票工作台",
+        language: "语言",
+        checking: "检查中...",
+        running: "运行中",
+        addHolding: "新增持仓",
+        symbol: "股票代码",
+        name: "名称",
+        quantity: "数量",
+        costPrice: "成本价",
+        stopLoss: "止损价",
+        takeProfit: "止盈价",
+        thesis: "买入理由",
+        add: "添加",
+        refresh: "刷新",
+        generateSignals: "生成今日信号",
+        dailyReview: "每日复盘",
+        runBacktest: "运行回测",
+        holdings: "持仓",
+        signals: "信号",
+        backtest: "回测",
+        noData: "暂无数据。",
+        generatedSignals: "已生成信号",
+        highRiskSymbols: "高风险股票",
+        failedFetchCount: "数据拉取失败数",
+        nextFocus: "下一交易日重点",
+        totalTrades: "交易次数",
+        winRate: "胜率",
+        riskReward: "盈亏比",
+        totalReturn: "总收益率",
+        maxDrawdown: "最大回撤",
+        averageWin: "平均盈利",
+        averageLoss: "平均亏损",
+        mode: "模式",
+        id: "ID",
+        signal_type: "信号类型",
+        action: "动作",
+        risk_level: "风险",
+        price: "价格",
+        cost_price: "成本价",
+        stop_loss: "止损价",
+        take_profit: "止盈价"
+      },
+      en: {
+        appTitle: "Tongdaxin Stock Workbench",
+        language: "Language",
+        checking: "checking...",
+        running: "running",
+        addHolding: "Add Holding",
+        symbol: "Symbol",
+        name: "Name",
+        quantity: "Quantity",
+        costPrice: "Cost Price",
+        stopLoss: "Stop Loss",
+        takeProfit: "Take Profit",
+        thesis: "Thesis",
+        add: "Add",
+        refresh: "Refresh",
+        generateSignals: "Generate Signals",
+        dailyReview: "Daily Review",
+        runBacktest: "Run Backtest",
+        holdings: "Holdings",
+        signals: "Signals",
+        backtest: "Backtest",
+        noData: "No data yet.",
+        generatedSignals: "Generated signals",
+        highRiskSymbols: "High-risk symbols",
+        failedFetchCount: "Failed fetches",
+        nextFocus: "Next session focus",
+        totalTrades: "Total trades",
+        winRate: "Win rate",
+        riskReward: "Risk/reward",
+        totalReturn: "Total return",
+        maxDrawdown: "Max drawdown",
+        averageWin: "Average win",
+        averageLoss: "Average loss",
+        mode: "mode",
+        id: "ID",
+        signal_type: "Signal Type",
+        action: "Action",
+        risk_level: "Risk",
+        price: "Price",
+        cost_price: "Cost Price",
+        stop_loss: "Stop Loss",
+        take_profit: "Take Profit"
+      }
+    };
+    const enumText = {
+      zh: {
+        hold_observe: "持有观察",
+        hard_stop_loss: "硬止损",
+        take_profit: "止盈复核",
+        max_loss_warning: "最大亏损预警",
+        trend_break: "趋势破坏",
+        volume_breakout: "放量突破",
+        pullback_confirm: "回踩确认",
+        momentum_weakness: "动能转弱",
+        hold: "持有",
+        exit_or_reduce: "退出/减仓",
+        trim_or_review: "止盈/复核",
+        review_risk: "复核风险",
+        reduce_or_watch: "减仓/观察",
+        breakout_watch: "突破观察",
+        hold_or_plan_add: "持有/计划加仓",
+        low: "低",
+        medium: "中",
+        high: "高"
+      },
+      en: {}
+    };
+    let currentLanguage = localStorage.getItem("tdx_language") || "zh";
+    document.getElementById("languageSelect").value = currentLanguage;
+
     async function api(path, options) {
       const response = await fetch(path, options);
       if (!response.ok) throw new Error(await response.text());
       return response.json();
     }
+    function t(key) {
+      return translations[currentLanguage][key] || key;
+    }
+    function enumLabel(value) {
+      return enumText[currentLanguage][value] || value || "";
+    }
+    function setLanguage(language) {
+      currentLanguage = language;
+      localStorage.setItem("tdx_language", language);
+      document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+      document.title = t("appTitle");
+      document.querySelectorAll("[data-i18n]").forEach(node => {
+        node.textContent = t(node.dataset.i18n);
+      });
+      refreshAll();
+      rerenderCachedPanels();
+    }
     function numberValue(id) {
       const value = document.getElementById(id).value;
       return value === "" ? null : Number(value);
     }
+    let cachedReview = null;
+    let cachedBacktest = null;
+
     async function checkHealth() {
       const health = await api("/health");
-      document.getElementById("health").textContent = health.mode ? `running (${health.mode})` : "running";
+      document.getElementById("health").textContent = health.mode ? `${t("running")} (${t("mode")}: ${health.mode})` : t("running");
     }
     async function addHolding() {
       await api("/holdings", {
@@ -185,38 +325,85 @@ def index_html() -> str:
       renderSignals(signals);
     }
     async function generateSignals() {
-      await api("/workbench/actions/from-market", {
+      const result = await api("/workbench/actions/from-market", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({source: "mock", persist: true, include_technical: true})
       });
       await refreshAll();
+      document.getElementById("review").innerHTML = `<p class="summary">${t("generatedSignals")}: ${result.generated_signals}</p>`;
     }
     async function dailyReview() {
-      const review = await api("/reports/daily-review");
-      document.getElementById("review").textContent = JSON.stringify(review, null, 2);
+      cachedReview = await api("/reports/daily-review");
+      renderDailyReview(cachedReview);
     }
     async function runBacktest() {
       const symbol = document.getElementById("symbol").value || "600519";
-      const result = await api(`/backtests/${encodeURIComponent(symbol)}`, {
+      cachedBacktest = await api(`/backtests/${encodeURIComponent(symbol)}`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({source: "mock", limit: 160, persist: true})
       });
-      document.getElementById("backtest").textContent = JSON.stringify(result.result.metrics, null, 2);
+      renderBacktest(cachedBacktest);
     }
     function renderHoldings(rows) {
       document.getElementById("holdings").innerHTML = table(rows, ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"]);
     }
     function renderSignals(rows) {
-      document.getElementById("signals").innerHTML = table(rows.slice(0, 12), ["symbol", "signal_type", "action", "risk_level", "price"]);
+      const mapped = rows.slice(0, 12).map(row => ({
+        ...row,
+        signal_type: enumLabel(row.signal_type),
+        action: enumLabel(row.action),
+        risk_level: enumLabel(row.risk_level)
+      }));
+      document.getElementById("signals").innerHTML = table(mapped, ["symbol", "signal_type", "action", "risk_level", "price"]);
+    }
+    function renderDailyReview(report) {
+      const payload = report.payload || report;
+      const quality = payload.data_quality || {};
+      const focus = payload.next_session_focus || [];
+      document.getElementById("review").innerHTML = `
+        <p class="summary">${payload.summary || ""}</p>
+        <div class="metric-grid" style="margin-top:10px">
+          <div class="metric"><b>${t("highRiskSymbols")}</b>${(payload.high_risk_symbols || []).join(", ") || "-"}</div>
+          <div class="metric"><b>${t("failedFetchCount")}</b>${quality.failed_fetch_count ?? 0}</div>
+        </div>
+        <p class="status" style="margin-top:12px">${t("nextFocus")}</p>
+        <ul>${focus.map(item => `<li>${item}</li>`).join("")}</ul>
+      `;
+    }
+    function renderBacktest(result) {
+      const metrics = result.result.metrics;
+      document.getElementById("backtest").innerHTML = `
+        <div class="metric-grid">
+          ${metric("totalTrades", metrics.total_trades)}
+          ${metric("winRate", percent(metrics.win_rate))}
+          ${metric("riskReward", metrics.risk_reward_ratio ?? "-")}
+          ${metric("totalReturn", percent(metrics.total_return_pct / 100))}
+          ${metric("maxDrawdown", `${metrics.max_drawdown_pct}%`)}
+          ${metric("averageWin", `${metrics.average_win_pct}%`)}
+          ${metric("averageLoss", `${metrics.average_loss_pct}%`)}
+        </div>
+      `;
+    }
+    function metric(labelKey, value) {
+      return `<div class="metric"><b>${t(labelKey)}</b>${value}</div>`;
+    }
+    function percent(value) {
+      if (value === null || value === undefined) return "-";
+      return `${(Number(value) * 100).toFixed(2)}%`;
     }
     function table(rows, fields) {
-      if (!rows.length) return "<p class='status'>No data yet.</p>";
-      const head = fields.map(field => `<th>${field}</th>`).join("");
+      if (!rows.length) return `<p class="status">${t("noData")}</p>`;
+      const head = fields.map(field => `<th>${t(field)}</th>`).join("");
       const body = rows.map(row => `<tr>${fields.map(field => `<td>${row[field] ?? ""}</td>`).join("")}</tr>`).join("");
       return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
     }
+    function rerenderCachedPanels() {
+      if (cachedReview) renderDailyReview(cachedReview);
+      if (cachedBacktest) renderBacktest(cachedBacktest);
+    }
+    setLanguage(currentLanguage);
     checkHealth().then(refreshAll).catch(error => {
       document.getElementById("health").textContent = error.message;
     });
