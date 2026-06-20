@@ -179,7 +179,13 @@ def index_html() -> str:
         generatedSignals: "已生成信号",
         highRiskSymbols: "高风险股票",
         failedFetchCount: "数据拉取失败数",
+        fetchOk: "未发现数据拉取失败",
+        reviewedTemplate: "已复盘 {holdings} 条持仓和 {signals} 条近期信号。",
+        highRiskSignalCount: "高风险信号数",
         nextFocus: "下一交易日重点",
+        focus_review_high_risk: "优先复核高风险信号。",
+        focus_check_data_quality: "确认行情/指标数据正常后再参考信号排序。",
+        focus_compare_with_thesis: "把任何行动信号和原始买入理由再对照一次。",
         totalTrades: "交易次数",
         winRate: "胜率",
         riskReward: "盈亏比",
@@ -222,7 +228,13 @@ def index_html() -> str:
         generatedSignals: "Generated signals",
         highRiskSymbols: "High-risk symbols",
         failedFetchCount: "Failed fetches",
+        fetchOk: "No failed data fetches",
+        reviewedTemplate: "Reviewed {holdings} holdings and {signals} recent signals.",
+        highRiskSignalCount: "High-risk signals",
         nextFocus: "Next session focus",
+        focus_review_high_risk: "Review high-risk signals first.",
+        focus_check_data_quality: "Confirm quote and indicator data before trusting signal rankings.",
+        focus_compare_with_thesis: "Compare every action signal with the original position thesis.",
         totalTrades: "Total trades",
         winRate: "Win rate",
         riskReward: "Risk/reward",
@@ -361,15 +373,21 @@ def index_html() -> str:
     function renderDailyReview(report) {
       const payload = report.payload || report;
       const quality = payload.data_quality || {};
-      const focus = payload.next_session_focus || [];
+      const focusKeys = payload.next_session_focus_keys || ["review_high_risk", "check_data_quality", "compare_with_thesis"];
+      const summary = t("reviewedTemplate")
+        .replace("{holdings}", payload.holding_count ?? 0)
+        .replace("{signals}", payload.signal_count ?? 0);
+      const failedCount = quality.failed_fetch_count ?? 0;
+      const fetchText = failedCount === 0 ? t("fetchOk") : failedCount;
       document.getElementById("review").innerHTML = `
-        <p class="summary">${payload.summary || ""}</p>
+        <p class="summary">${summary}</p>
         <div class="metric-grid" style="margin-top:10px">
           <div class="metric"><b>${t("highRiskSymbols")}</b>${(payload.high_risk_symbols || []).join(", ") || "-"}</div>
-          <div class="metric"><b>${t("failedFetchCount")}</b>${quality.failed_fetch_count ?? 0}</div>
+          <div class="metric"><b>${t("highRiskSignalCount")}</b>${payload.high_risk_signal_count ?? 0}</div>
+          <div class="metric"><b>${t("failedFetchCount")}</b>${fetchText}</div>
         </div>
         <p class="status" style="margin-top:12px">${t("nextFocus")}</p>
-        <ul>${focus.map(item => `<li>${item}</li>`).join("")}</ul>
+        <ul>${focusKeys.map(key => `<li>${t("focus_" + key)}</li>`).join("")}</ul>
       `;
     }
     function renderBacktest(result) {

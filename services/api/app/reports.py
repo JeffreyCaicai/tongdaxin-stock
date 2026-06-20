@@ -112,11 +112,15 @@ def generate_daily_review(
     fetch_logs: list[dict[str, Any]],
 ) -> dict[str, Any]:
     action_counts: dict[str, int] = {}
-    high_risk: list[str] = []
+    high_risk_signal_count = 0
+    high_risk_symbols: list[str] = []
     for signal in signals:
         action_counts[signal["action"]] = action_counts.get(signal["action"], 0) + 1
         if signal["risk_level"] == "high":
-            high_risk.append(signal["symbol"])
+            high_risk_signal_count += 1
+            symbol = signal["symbol"]
+            if symbol not in high_risk_symbols:
+                high_risk_symbols.append(symbol)
 
     failed_fetches = [log for log in fetch_logs if log["status"] != "success"]
 
@@ -125,19 +129,22 @@ def generate_daily_review(
         "generated_at": utc_now(),
         "summary": (
             f"Reviewed {len(holdings)} holdings and {len(signals)} recent signals. "
-            f"High-risk symbols: {', '.join(high_risk) if high_risk else 'none'}."
+            f"High-risk symbols: {', '.join(high_risk_symbols) if high_risk_symbols else 'none'}."
         ),
+        "holding_count": len(holdings),
+        "signal_count": len(signals),
         "action_counts": action_counts,
-        "high_risk_symbols": high_risk,
+        "high_risk_symbols": high_risk_symbols,
+        "high_risk_signal_count": high_risk_signal_count,
         "data_quality": {
             "fetch_log_count": len(fetch_logs),
             "failed_fetch_count": len(failed_fetches),
             "failed_fetches": failed_fetches[:10],
         },
-        "next_session_focus": [
-            "Review high-risk signals first.",
-            "Check missing or failed data fetches before trusting signal rankings.",
-            "Compare any action signal with the original position thesis.",
+        "next_session_focus_keys": [
+            "review_high_risk",
+            "check_data_quality",
+            "compare_with_thesis",
         ],
     }
 

@@ -72,6 +72,7 @@ class ReportTests(unittest.TestCase):
             signals=[
                 {"symbol": "600519", "action": "hold", "risk_level": "low"},
                 {"symbol": "000001", "action": "review_risk", "risk_level": "high"},
+                {"symbol": "000001", "action": "review_risk", "risk_level": "high"},
             ],
             fetch_logs=[{"status": "success"}, {"status": "error"}],
         )
@@ -79,6 +80,9 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(report["report_type"], "daily_review")
         self.assertEqual(report["action_counts"]["hold"], 1)
         self.assertEqual(report["data_quality"]["failed_fetch_count"], 1)
+        self.assertEqual(report["high_risk_symbols"], ["000001"])
+        self.assertEqual(report["high_risk_signal_count"], 2)
+        self.assertIn("check_data_quality", report["next_session_focus_keys"])
 
 
 if __name__ == "__main__":
