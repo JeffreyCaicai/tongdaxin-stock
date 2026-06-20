@@ -119,3 +119,57 @@ class WorkbenchActionOut(BaseModel):
     generated_signals: int
     missing_prices: list[str]
     signals: list[SignalOut]
+
+
+class MarketQuoteOut(BaseModel):
+    snapshot_id: int
+    symbol: str
+    source: str
+    price: float
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    previous_close: float | None = None
+    change: float | None = None
+    pct_change: float | None = None
+    volume: float | None = None
+    amount: float | None = None
+    fetched_at: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class MarketKlineBarOut(BaseModel):
+    symbol: str
+    source: str
+    period: str
+    trade_date: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float | None = None
+    amount: float | None = None
+    fetched_at: str
+
+
+class MarketKlineOut(BaseModel):
+    symbol: str
+    source: str
+    period: str
+    count: int
+    bars: list[MarketKlineBarOut]
+
+
+class MarketFetchLogOut(BaseModel):
+    id: int
+    symbol: str
+    source: str
+    data_type: str
+    status: str
+    message: str | None = None
+    fetched_at: str
+
+
+class WorkbenchMarketActionRequest(BaseModel):
+    source: str = "mock"
+    persist: bool = True

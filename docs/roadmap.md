@@ -20,6 +20,8 @@
 - Fetch quote and kline for a single stock.
 - Cache raw snapshots with source and timestamp.
 
+Current implementation uses the built-in `mock` provider to prove the adapter, cache, logging, and signal integration path before adding a live dependency.
+
 ## Milestone 4: First Signal Engine
 
 - MA, MACD, RSI, ATR, volume moving average.

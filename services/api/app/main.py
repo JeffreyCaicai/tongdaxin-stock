@@ -12,8 +12,11 @@ from .csv_io import (
     rows_to_csv,
 )
 from .database import get_db, init_db
+from .market_data import MarketDataError, get_market_data_provider
 from .repository import (
     create_holding,
+    create_market_fetch_log,
+    create_market_snapshot,
     create_signal,
     create_watchlist_item,
     delete_holding,
@@ -21,17 +24,24 @@ from .repository import (
     get_holding,
     get_watchlist_item,
     list_holdings,
+    list_market_fetch_logs,
+    list_market_klines,
+    list_market_snapshots,
     list_signals,
     list_watchlist,
     normalize_symbol,
     update_holding,
     update_watchlist_item,
+    upsert_market_klines,
     utc_now,
 )
 from .schemas import (
     HoldingCreate,
     HoldingOut,
     HoldingUpdate,
+    MarketFetchLogOut,
+    MarketKlineOut,
+    MarketQuoteOut,
     SignalEvaluateRequest,
     SignalOut,
     WatchlistCreate,
@@ -39,6 +49,7 @@ from .schemas import (
     WatchlistUpdate,
     WorkbenchActionOut,
     WorkbenchActionRequest,
+    WorkbenchMarketActionRequest,
 )
 from .signal_engine import evaluate_holding_signal
 
@@ -95,6 +106,64 @@ def _save_signal(db: sqlite3.Connection, signal: dict) -> dict:
         source_snapshot_id=signal["source_snapshot_id"],
     )
     return _signal_row_to_output(saved)
+
+
+def _quote_payload_to_output(snapshot: dict, payload: dict) -> dict:
+    return {
+        "snapshot_id": snapshot["id"],
+        "symbol": snapshot["symbol"],
+        "source": snapshot["source"],
+        "price": payload["price"],
+        "open": payload.get("open"),
+        "high": payload.get("high"),
+        "low": payload.get("low"),
+        "previous_close": payload.get("previous_close"),
+        "change": payload.get("change"),
+        "pct_change": payload.get("pct_change"),
+        "volume": payload.get("volume"),
+        "amount": payload.get("amount"),
+        "fetched_at": snapshot["fetched_at"],
+        "payload": payload,
+    }
+
+
+def _fetch_quote_and_cache(
+    db: sqlite3.Connection,
+    *,
+    symbol: str,
+    source: str,
+) -> dict:
+    normalized_symbol = normalize_symbol(symbol)
+    try:
+        provider = get_market_data_provider(source)
+        quote = provider.fetch_quote(normalized_symbol)
+        snapshot = create_market_snapshot(
+            db,
+            symbol=normalized_symbol,
+            source=provider.name,
+            payload=quote,
+            fetched_at=quote.get("fetched_at"),
+        )
+        create_market_fetch_log(
+            db,
+            symbol=normalized_symbol,
+            source=provider.name,
+            data_type="quote",
+            status="success",
+            message=None,
+            fetched_at=snapshot["fetched_at"],
+        )
+        return _quote_payload_to_output(snapshot, quote)
+    except MarketDataError as exc:
+        create_market_fetch_log(
+            db,
+            symbol=normalized_symbol,
+            source=source,
+            data_type="quote",
+            status="error",
+            message=str(exc),
+        )
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.get("/holdings", response_model=list[HoldingOut])
@@ -205,6 +274,117 @@ def api_list_signals(
     ]
 
 
+@app.get("/market/quote/{symbol}", response_model=MarketQuoteOut)
+def api_fetch_market_quote(
+    symbol: str,
+    source: str = "mock",
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    return _fetch_quote_and_cache(db, symbol=symbol, source=source)
+
+
+@app.get("/market/kline/{symbol}", response_model=MarketKlineOut)
+def api_fetch_market_kline(
+    symbol: str,
+    source: str = "mock",
+    period: str = "daily",
+    limit: int = Query(default=120, ge=1, le=1000),
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    normalized_symbol = normalize_symbol(symbol)
+    try:
+        provider = get_market_data_provider(source)
+        bars = provider.fetch_kline(normalized_symbol, period=period, limit=limit)
+        cached_bars = upsert_market_klines(
+            db,
+            symbol=normalized_symbol,
+            source=provider.name,
+            period=period,
+            bars=bars,
+        )
+        create_market_fetch_log(
+            db,
+            symbol=normalized_symbol,
+            source=provider.name,
+            data_type="kline",
+            status="success",
+            message=f"Fetched {len(bars)} {period} bars.",
+        )
+    except MarketDataError as exc:
+        create_market_fetch_log(
+            db,
+            symbol=normalized_symbol,
+            source=source,
+            data_type="kline",
+            status="error",
+            message=str(exc),
+        )
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {
+        "symbol": normalized_symbol,
+        "source": provider.name,
+        "period": period,
+        "count": len(cached_bars),
+        "bars": list(reversed(cached_bars)),
+    }
+
+
+@app.get("/market/snapshots", response_model=list[MarketQuoteOut])
+def api_list_market_snapshots(
+    symbol: str | None = None,
+    source: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: sqlite3.Connection = Depends(get_db),
+) -> list[dict]:
+    outputs: list[dict] = []
+    for snapshot in list_market_snapshots(
+        db, symbol=symbol, source=source, limit=limit
+    ):
+        payload = json.loads(snapshot["payload_json"])
+        if "price" in payload:
+            outputs.append(_quote_payload_to_output(snapshot, payload))
+    return outputs
+
+
+@app.get("/market/klines/{symbol}", response_model=MarketKlineOut)
+def api_list_cached_market_klines(
+    symbol: str,
+    source: str | None = None,
+    period: str = "daily",
+    limit: int = Query(default=120, ge=1, le=1000),
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    normalized_symbol = normalize_symbol(symbol)
+    bars = list_market_klines(
+        db, symbol=normalized_symbol, source=source, period=period, limit=limit
+    )
+    return {
+        "symbol": normalized_symbol,
+        "source": source or "any",
+        "period": period,
+        "count": len(bars),
+        "bars": list(reversed(bars)),
+    }
+
+
+@app.get("/market/fetch-logs", response_model=list[MarketFetchLogOut])
+def api_list_market_fetch_logs(
+    symbol: str | None = None,
+    source: str | None = None,
+    data_type: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: sqlite3.Connection = Depends(get_db),
+) -> list[dict]:
+    return list_market_fetch_logs(
+        db,
+        symbol=symbol,
+        source=source,
+        data_type=data_type,
+        limit=limit,
+    )
+
+
 @app.post("/workbench/actions", response_model=WorkbenchActionOut)
 def api_generate_workbench_actions(
     payload: WorkbenchActionRequest,
@@ -224,6 +404,39 @@ def api_generate_workbench_actions(
             missing_prices.append(symbol)
             continue
         signal = evaluate_holding_signal(holding, current_price=current_price)
+        signals.append(_save_signal(db, signal) if payload.persist else signal)
+
+    return {
+        "generated_at": utc_now(),
+        "total_holdings": len(holdings),
+        "generated_signals": len(signals),
+        "missing_prices": missing_prices,
+        "signals": signals,
+    }
+
+
+@app.post("/workbench/actions/from-market", response_model=WorkbenchActionOut)
+def api_generate_workbench_actions_from_market(
+    payload: WorkbenchMarketActionRequest,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    holdings = list_holdings(db)
+    missing_prices: list[str] = []
+    signals: list[dict] = []
+
+    for holding in holdings:
+        symbol = normalize_symbol(holding["symbol"])
+        try:
+            quote = _fetch_quote_and_cache(db, symbol=symbol, source=payload.source)
+        except HTTPException:
+            missing_prices.append(symbol)
+            continue
+
+        signal = evaluate_holding_signal(
+            holding,
+            current_price=quote["price"],
+            source_snapshot_id=quote["snapshot_id"],
+        )
         signals.append(_save_signal(db, signal) if payload.persist else signal)
 
     return {

@@ -24,3 +24,18 @@ Each adapter should normalize output into project-owned structures:
 - raw payload hash or JSON
 
 The rule engine should never depend directly on provider-specific payloads.
+
+## Current PoC
+
+The API currently includes a `mock` provider that returns deterministic quote and daily K-line data. This provider exists so the cache, signal, and workbench paths can be developed without external network access or real credentials.
+
+Implemented endpoints:
+
+- `GET /market/quote/{symbol}` fetches one quote, stores it in `market_snapshots`, and records a fetch log.
+- `GET /market/kline/{symbol}` fetches daily bars, upserts them into `market_klines`, and records a fetch log.
+- `GET /market/snapshots` lists cached quote snapshots.
+- `GET /market/klines/{symbol}` lists cached K-line bars.
+- `GET /market/fetch-logs` lists success/error records for provider calls.
+- `POST /workbench/actions/from-market` fetches quotes for all holdings and generates action signals from cached snapshot IDs.
+
+Next provider target: `eltdx`, because it keeps the MVP close to the Tongdaxin ecosystem while avoiding official token dependencies.

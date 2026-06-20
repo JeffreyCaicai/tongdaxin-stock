@@ -10,7 +10,7 @@
 - 已选择 `Tauri + React` 作为桌面端方向，MVP 先以本地 FastAPI 服务打通数据和规则闭环。
 - 已建立 SQLite schema、持仓 CRUD、目标池 CRUD 和基础信号评估入口。
 - 已支持持仓/目标池 CSV 导入导出、信号历史查询和工作台批量行动信号生成。
-- 数据源暂以本地/模拟输入为主，后续接入 `eltdx`、AkShare 或通达信 Token 路线。
+- 数据源已具备 provider 抽象和 mock PoC，可拉取单股 quote/K 线并缓存到 SQLite；后续接入 `eltdx`、AkShare 或通达信 Token 路线。
 
 ## 目录结构
 
@@ -55,7 +55,13 @@ curl http://127.0.0.1:8765/health
 - `GET /watchlist/export.csv`
 - `POST /watchlist/import.csv`
 - `GET /signals`
+- `GET /market/quote/{symbol}`
+- `GET /market/kline/{symbol}`
+- `GET /market/snapshots`
+- `GET /market/klines/{symbol}`
+- `GET /market/fetch-logs`
 - `POST /workbench/actions`
+- `POST /workbench/actions/from-market`
 
 工作台行动信号示例：
 
@@ -63,6 +69,21 @@ curl http://127.0.0.1:8765/health
 curl -X POST http://127.0.0.1:8765/workbench/actions \
   -H "Content-Type: application/json" \
   -d '{"prices":{"600519":1500,"000001":12.2},"persist":true}'
+```
+
+从 mock 行情源自动拉 quote 并生成行动信号：
+
+```bash
+curl -X POST http://127.0.0.1:8765/workbench/actions/from-market \
+  -H "Content-Type: application/json" \
+  -d '{"source":"mock","persist":true}'
+```
+
+拉取单股 quote / K 线：
+
+```bash
+curl "http://127.0.0.1:8765/market/quote/600519?source=mock"
+curl "http://127.0.0.1:8765/market/kline/600519?source=mock&period=daily&limit=30"
 ```
 
 ## 测试

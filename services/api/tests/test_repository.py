@@ -7,14 +7,20 @@ from pathlib import Path
 from services.api.app.database import connect, init_db
 from services.api.app.repository import (
     create_holding,
+    create_market_fetch_log,
+    create_market_snapshot,
     create_signal,
     create_watchlist_item,
     delete_holding,
     get_holding,
     list_holdings,
+    list_market_fetch_logs,
+    list_market_klines,
+    list_market_snapshots,
     list_signals,
     list_watchlist,
     update_holding,
+    upsert_market_klines,
 )
 
 
@@ -109,6 +115,70 @@ class RepositoryTests(unittest.TestCase):
 
         self.assertEqual(len(signals), 1)
         self.assertEqual(signals[0]["symbol"], "600519")
+
+    def test_market_snapshot_and_fetch_log_are_persisted(self) -> None:
+        snapshot = create_market_snapshot(
+            self.connection,
+            symbol="600519",
+            source="mock",
+            payload={"price": 1500.5},
+        )
+        log = create_market_fetch_log(
+            self.connection,
+            symbol="600519",
+            source="mock",
+            data_type="quote",
+            status="success",
+        )
+
+        self.assertEqual(snapshot["symbol"], "600519")
+        self.assertEqual(log["status"], "success")
+        self.assertEqual(len(list_market_snapshots(self.connection, symbol="600519")), 1)
+        self.assertEqual(len(list_market_fetch_logs(self.connection, symbol="600519")), 1)
+
+    def test_market_klines_are_upserted(self) -> None:
+        bars = [
+            {
+                "trade_date": "2026-06-19",
+                "open": 10,
+                "high": 11,
+                "low": 9.8,
+                "close": 10.5,
+                "volume": 1000,
+                "amount": 10500,
+            },
+            {
+                "trade_date": "2026-06-20",
+                "open": 10.5,
+                "high": 11.2,
+                "low": 10.1,
+                "close": 11,
+                "volume": 1200,
+                "amount": 13200,
+            },
+        ]
+
+        upsert_market_klines(
+            self.connection,
+            symbol="000001",
+            source="mock",
+            period="daily",
+            bars=bars,
+        )
+        upsert_market_klines(
+            self.connection,
+            symbol="000001",
+            source="mock",
+            period="daily",
+            bars=[{**bars[0], "close": 10.8}],
+        )
+
+        saved = list_market_klines(
+            self.connection, symbol="000001", source="mock", period="daily"
+        )
+
+        self.assertEqual(len(saved), 2)
+        self.assertEqual(saved[-1]["close"], 10.8)
 
 
 if __name__ == "__main__":

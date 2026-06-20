@@ -258,3 +258,207 @@ def list_signals(
             (limit,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def create_market_snapshot(
+    connection: sqlite3.Connection,
+    *,
+    symbol: str,
+    source: str,
+    payload: dict[str, Any],
+    fetched_at: str | None = None,
+) -> dict[str, Any]:
+    fetched_at = fetched_at or utc_now()
+    cursor = connection.execute(
+        """
+        INSERT INTO market_snapshots (symbol, source, payload_json, fetched_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            normalize_symbol(symbol),
+            source,
+            json.dumps(payload, ensure_ascii=False),
+            fetched_at,
+        ),
+    )
+    connection.commit()
+    row = connection.execute(
+        "SELECT * FROM market_snapshots WHERE id = ?", (int(cursor.lastrowid),)
+    ).fetchone()
+    created = row_to_dict(row)
+    assert created is not None
+    return created
+
+
+def list_market_snapshots(
+    connection: sqlite3.Connection,
+    *,
+    symbol: str | None = None,
+    source: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    limit = max(1, min(limit, 500))
+    clauses: list[str] = []
+    params: list[Any] = []
+    if symbol:
+        clauses.append("symbol = ?")
+        params.append(normalize_symbol(symbol))
+    if source:
+        clauses.append("source = ?")
+        params.append(source)
+
+    where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        f"""
+        SELECT * FROM market_snapshots
+        {where_clause}
+        ORDER BY fetched_at DESC, id DESC
+        LIMIT ?
+        """,
+        tuple(params + [limit]),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def upsert_market_klines(
+    connection: sqlite3.Connection,
+    *,
+    symbol: str,
+    source: str,
+    period: str,
+    bars: list[dict[str, Any]],
+    fetched_at: str | None = None,
+) -> list[dict[str, Any]]:
+    fetched_at = fetched_at or utc_now()
+    normalized_symbol = normalize_symbol(symbol)
+    for bar in bars:
+        connection.execute(
+            """
+            INSERT INTO market_klines (
+              symbol, source, period, trade_date, open, high, low, close,
+              volume, amount, payload_json, fetched_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(symbol, source, period, trade_date) DO UPDATE SET
+              open = excluded.open,
+              high = excluded.high,
+              low = excluded.low,
+              close = excluded.close,
+              volume = excluded.volume,
+              amount = excluded.amount,
+              payload_json = excluded.payload_json,
+              fetched_at = excluded.fetched_at
+            """,
+            (
+                normalized_symbol,
+                source,
+                period,
+                bar["trade_date"],
+                bar["open"],
+                bar["high"],
+                bar["low"],
+                bar["close"],
+                bar.get("volume"),
+                bar.get("amount"),
+                json.dumps(bar.get("payload", bar), ensure_ascii=False),
+                fetched_at,
+            ),
+        )
+    connection.commit()
+    return list_market_klines(
+        connection,
+        symbol=normalized_symbol,
+        source=source,
+        period=period,
+        limit=len(bars) if bars else 1,
+    )
+
+
+def list_market_klines(
+    connection: sqlite3.Connection,
+    *,
+    symbol: str,
+    source: str | None = None,
+    period: str = "daily",
+    limit: int = 120,
+) -> list[dict[str, Any]]:
+    limit = max(1, min(limit, 1000))
+    clauses = ["symbol = ?", "period = ?"]
+    params: list[Any] = [normalize_symbol(symbol), period]
+    if source:
+        clauses.append("source = ?")
+        params.append(source)
+
+    rows = connection.execute(
+        f"""
+        SELECT * FROM market_klines
+        WHERE {' AND '.join(clauses)}
+        ORDER BY trade_date DESC
+        LIMIT ?
+        """,
+        tuple(params + [limit]),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def create_market_fetch_log(
+    connection: sqlite3.Connection,
+    *,
+    symbol: str,
+    source: str,
+    data_type: str,
+    status: str,
+    message: str | None = None,
+    fetched_at: str | None = None,
+) -> dict[str, Any]:
+    fetched_at = fetched_at or utc_now()
+    cursor = connection.execute(
+        """
+        INSERT INTO market_fetch_logs (
+          symbol, source, data_type, status, message, fetched_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (normalize_symbol(symbol), source, data_type, status, message, fetched_at),
+    )
+    connection.commit()
+    row = connection.execute(
+        "SELECT * FROM market_fetch_logs WHERE id = ?", (int(cursor.lastrowid),)
+    ).fetchone()
+    created = row_to_dict(row)
+    assert created is not None
+    return created
+
+
+def list_market_fetch_logs(
+    connection: sqlite3.Connection,
+    *,
+    symbol: str | None = None,
+    source: str | None = None,
+    data_type: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    limit = max(1, min(limit, 500))
+    clauses: list[str] = []
+    params: list[Any] = []
+    if symbol:
+        clauses.append("symbol = ?")
+        params.append(normalize_symbol(symbol))
+    if source:
+        clauses.append("source = ?")
+        params.append(source)
+    if data_type:
+        clauses.append("data_type = ?")
+        params.append(data_type)
+
+    where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        f"""
+        SELECT * FROM market_fetch_logs
+        {where_clause}
+        ORDER BY fetched_at DESC, id DESC
+        LIMIT ?
+        """,
+        tuple(params + [limit]),
+    ).fetchall()
+    return [dict(row) for row in rows]
