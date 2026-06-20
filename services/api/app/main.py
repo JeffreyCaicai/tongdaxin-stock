@@ -17,6 +17,7 @@ from .database import get_db, init_db
 from .indicators import calculate_indicator_snapshot
 from .market_data import MarketDataError, get_market_data_provider
 from .mcp_tools import McpToolError, call_eltdx_mcp_tool, list_eltdx_mcp_tools
+from .pool_analysis import generate_stock_pool_mcp_analysis
 from .repository import (
     create_analysis_report,
     create_backtest,
@@ -74,6 +75,7 @@ from .schemas import (
     SignalEvaluateRequest,
     SignalOut,
     SignalReviewOut,
+    StockPoolMcpAnalysisRequest,
     StockPoolCreate,
     StockPoolOut,
     StockPoolUpdate,
@@ -951,6 +953,35 @@ def api_delete_stock_pool(
     if not delete_stock_pool(db, pool_id):
         raise HTTPException(status_code=404, detail="Stock pool not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post("/stock-pools/{pool_id}/mcp-analysis", response_model=ReportOut)
+def api_analyze_stock_pool_with_mcp(
+    pool_id: int,
+    payload: StockPoolMcpAnalysisRequest,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    pool = get_stock_pool(db, pool_id)
+    if pool is None:
+        raise HTTPException(status_code=404, detail="Stock pool not found")
+    symbols = pool_symbols(db, pool_id)
+    try:
+        report = generate_stock_pool_mcp_analysis(
+            pool=pool,
+            holdings=filter_rows_by_symbols(
+                latest_by_symbol(list_holdings(db)), symbols
+            ),
+            watchlist=list_watchlist(db, pool_id=pool_id),
+            max_symbols=payload.max_symbols,
+            quote_tool=payload.quote_tool,
+            profile_tool=payload.profile_tool,
+            include_profile=payload.include_profile,
+            quote_arguments=payload.quote_arguments,
+            profile_arguments=payload.profile_arguments,
+        )
+    except McpToolError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _save_report(db, report=report, persist=payload.persist)
 
 
 @app.get("/watchlist", response_model=list[WatchlistOut])

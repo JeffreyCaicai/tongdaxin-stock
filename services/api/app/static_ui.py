@@ -159,9 +159,10 @@ def index_html() -> str:
           <input id="newPoolName" data-i18n-placeholder="poolNamePlaceholder" placeholder="例如：短线观察">
         </div>
         <button class="secondary" onclick="createPool()" data-i18n="createPool">创建股票池</button>
-        <button onclick="generateSignals()" data-i18n="generatePoolSignals">分析当前池</button>
+        <button onclick="analyzePool()" data-i18n="analyzePool">分析当前池</button>
       </div>
       <div class="toolbar">
+        <button class="secondary" onclick="generateSignals()" data-i18n="generatePoolSignals">生成今日信号</button>
         <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">每日复盘</button>
         <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">运行回测</button>
       </div>
@@ -238,7 +239,8 @@ def index_html() -> str:
         quoteFailed: "行情读取失败",
         mockSourceHint: "当前使用演示行情，名称和价格不代表真实市场。",
         realSourceHint: "当前使用通达信/真实行情源。",
-        generatePoolSignals: "分析当前池",
+        analyzePool: "分析当前池",
+        generatePoolSignals: "生成今日信号",
         dailyReview: "每日复盘",
         runBacktest: "运行回测",
         holdings: "持仓",
@@ -252,6 +254,11 @@ def index_html() -> str:
         backtest: "回测",
         noData: "暂无数据。",
         generatedSignals: "已生成信号",
+        poolAnalysisFailed: "股票池分析失败",
+        mcpToolPlan: "MCP 工具计划",
+        missingQuotes: "缺行情股票",
+        failedSymbols: "失败股票",
+        nextSteps: "下一步",
         savedHolding: "已保存持仓",
         updatedHolding: "已更新已有持仓",
         duplicateHoldingNote: "检测到相同股票代码，已更新原持仓，避免重复记录。",
@@ -287,6 +294,7 @@ def index_html() -> str:
         signal_type: "信号类型",
         action: "动作",
         risk_level: "风险",
+        action_hint: "行动提示",
         price: "价格",
         created_at: "生成时间",
         cost_price: "成本价",
@@ -319,7 +327,8 @@ def index_html() -> str:
         quoteFailed: "Quote failed",
         mockSourceHint: "Demo quotes are synthetic and do not represent the real market.",
         realSourceHint: "Using Tongdaxin or a real market data source.",
-        generatePoolSignals: "Analyze Pool",
+        analyzePool: "Analyze Pool",
+        generatePoolSignals: "Generate Signals",
         dailyReview: "Daily Review",
         runBacktest: "Run Backtest",
         holdings: "Holdings",
@@ -333,6 +342,11 @@ def index_html() -> str:
         backtest: "Backtest",
         noData: "No data yet.",
         generatedSignals: "Generated signals",
+        poolAnalysisFailed: "Pool analysis failed",
+        mcpToolPlan: "MCP tool plan",
+        missingQuotes: "Missing quotes",
+        failedSymbols: "Failed symbols",
+        nextSteps: "Next steps",
         savedHolding: "Holding saved",
         updatedHolding: "Existing holding updated",
         duplicateHoldingNote: "Same symbol detected; updated the existing holding to avoid duplicates.",
@@ -368,6 +382,7 @@ def index_html() -> str:
         signal_type: "Signal Type",
         action: "Action",
         risk_level: "Risk",
+        action_hint: "Action Hint",
         price: "Price",
         created_at: "Created At",
         cost_price: "Cost Price",
@@ -394,9 +409,32 @@ def index_html() -> str:
         hold_or_plan_add: "持有/计划加仓",
         low: "低",
         medium: "中",
-        high: "高"
+        high: "高",
+        complete_market_data: "补齐行情",
+        review_stop_loss: "复核止损",
+        review_take_profit: "复核止盈",
+        hold_and_monitor: "持有观察",
+        review_buy_zone: "复核买入区间",
+        watch_pool_candidate: "观察候选股",
+        observe: "观察",
+        check_mcp_tool_errors: "检查 MCP 工具错误",
+        review_stop_loss_first: "优先复核止损",
+        review_take_profit_plan: "复核止盈计划",
+        review_pool_candidates: "复核股票池候选"
       },
-      en: {}
+      en: {
+        complete_market_data: "Complete market data",
+        review_stop_loss: "Review stop loss",
+        review_take_profit: "Review take profit",
+        hold_and_monitor: "Hold and monitor",
+        review_buy_zone: "Review buy zone",
+        watch_pool_candidate: "Watch candidate",
+        observe: "Observe",
+        check_mcp_tool_errors: "Check MCP tool errors",
+        review_stop_loss_first: "Review stop loss first",
+        review_take_profit_plan: "Review take-profit plan",
+        review_pool_candidates: "Review pool candidates"
+      }
     };
     let currentLanguage = localStorage.getItem("tdx_language") || "zh";
     document.getElementById("languageSelect").value = currentLanguage;
@@ -554,6 +592,21 @@ def index_html() -> str:
       await refreshAll();
       document.getElementById("review").innerHTML = `<p class="summary">${t("generatedSignals")}: ${result.generated_signals}</p>`;
     }
+    async function analyzePool() {
+      const poolId = selectedPoolId();
+      if (!poolId) return;
+      document.getElementById("review").innerHTML = `<p class="summary">${t("checking")}</p>`;
+      try {
+        cachedReview = await api(`/stock-pools/${poolId}/mcp-analysis`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({persist: true, max_symbols: 30, include_profile: true})
+        });
+        renderPoolAnalysis(cachedReview);
+      } catch (error) {
+        document.getElementById("review").innerHTML = `<p class="status">${t("poolAnalysisFailed")}: ${escapeHtml(error.message)}</p>`;
+      }
+    }
     async function dailyReview() {
       cachedReview = await api(`/reports/daily-review?pool_id=${selectedPoolId() || ""}`);
       renderDailyReview(cachedReview);
@@ -664,6 +717,10 @@ def index_html() -> str:
     }
     function renderDailyReview(report) {
       const payload = report.payload || report;
+      if (payload.report_type === "stock_pool_mcp_analysis") {
+        renderPoolAnalysis(report);
+        return;
+      }
       const quality = payload.data_quality || {};
       const focusKeys = payload.next_session_focus_keys || ["review_high_risk", "check_data_quality", "compare_with_thesis"];
       const summary = t("reviewedTemplate")
@@ -680,6 +737,27 @@ def index_html() -> str:
         </div>
         <p class="status" style="margin-top:12px">${t("nextFocus")}</p>
         <ul>${focusKeys.map(key => `<li>${t("focus_" + key)}</li>`).join("")}</ul>
+      `;
+    }
+    function renderPoolAnalysis(report) {
+      const payload = report.payload || report;
+      const quality = payload.data_quality || {};
+      const plan = payload.tool_plan || {};
+      const rows = (payload.items || []).map(item => ({
+        symbol: item.symbol,
+        name: item.name || "",
+        action_hint: enumLabel(item.action_hint),
+        price: item.mcp_calls?.quote?.fields?.price ?? ""
+      }));
+      document.getElementById("review").innerHTML = `
+        <p class="summary">${escapeHtml(payload.summary || "")}</p>
+        <div class="metric-grid" style="margin-top:10px">
+          <div class="metric"><b>${t("mcpToolPlan")}</b>${escapeHtml(plan.quote_tool || "-")} / ${escapeHtml(plan.profile_tool || "-")}</div>
+          <div class="metric"><b>${t("missingQuotes")}</b>${quality.missing_quote_count ?? 0}</div>
+          <div class="metric"><b>${t("failedSymbols")}</b>${(quality.failed_symbols || []).join(", ") || "-"}</div>
+          <div class="metric"><b>${t("nextSteps")}</b>${(payload.next_steps || []).map(enumLabel).join(", ") || "-"}</div>
+        </div>
+        <div style="margin-top:12px">${table(rows, ["symbol", "name", "action_hint", "price"])}</div>
       `;
     }
     function renderBacktest(result) {
@@ -707,10 +785,18 @@ def index_html() -> str:
       if (value === null || value === undefined || value === "") return "-";
       return Number(value).toFixed(2);
     }
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
     function table(rows, fields) {
       if (!rows.length) return `<p class="status">${t("noData")}</p>`;
-      const head = fields.map(field => `<th>${t(field)}</th>`).join("");
-      const body = rows.map(row => `<tr>${fields.map(field => `<td>${row[field] ?? ""}</td>`).join("")}</tr>`).join("");
+      const head = fields.map(field => `<th>${escapeHtml(t(field))}</th>`).join("");
+      const body = rows.map(row => `<tr>${fields.map(field => `<td>${escapeHtml(row[field] ?? "")}</td>`).join("")}</tr>`).join("");
       return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
     }
     function latestBySymbol(rows) {

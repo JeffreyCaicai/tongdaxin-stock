@@ -84,6 +84,7 @@ curl http://127.0.0.1:8765/health
 - `GET /mcp/tongdaxin/tools`
 - `POST /mcp/eltdx/tools/{tool_name}`
 - `POST /mcp/tongdaxin/tools/{tool_name}`
+- `POST /stock-pools/{pool_id}/mcp-analysis`
 - `POST /workbench/actions`
 - `POST /workbench/actions/from-market`
 
@@ -116,6 +117,22 @@ curl http://127.0.0.1:8765/mcp/tongdaxin/tools
 curl -X POST http://127.0.0.1:8765/mcp/tongdaxin/tools/tdx_quotes \
   -H "Content-Type: application/json" \
   -d '{"arguments":{"symbol":"600519"}}'
+```
+
+基于当前个人股票池执行 MCP 池级分析：
+
+```bash
+curl -X POST http://127.0.0.1:8765/stock-pools/1/mcp-analysis \
+  -H "Content-Type: application/json" \
+  -d '{"persist":true,"max_symbols":30,"include_profile":true}'
+```
+
+如果 MCP 工具参数和默认推断不一致，可以指定工具名和参数模板：
+
+```bash
+curl -X POST http://127.0.0.1:8765/stock-pools/1/mcp-analysis \
+  -H "Content-Type: application/json" \
+  -d '{"quote_tool":"tdx_quotes","quote_arguments":{"code":"{tdx_code}"}}'
 ```
 
 从通达信源自动拉 quote 并生成当前股票池行动信号：

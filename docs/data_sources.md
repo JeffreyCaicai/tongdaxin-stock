@@ -46,6 +46,7 @@ Implemented endpoints:
 - `GET /market/fetch-logs` lists success/error records for provider calls.
 - `GET /mcp/tongdaxin/tools` lists the tools exposed by `eltdx-mcp`.
 - `POST /mcp/tongdaxin/tools/{tool_name}` calls one MCP tool with an `arguments` object.
+- `POST /stock-pools/{pool_id}/mcp-analysis` analyzes only the selected personal stock pool by listing MCP tools, selecting quote/profile-like tools, calling them per pool symbol, and saving a stock-pool report.
 - `POST /workbench/actions/from-market` fetches quotes for all holdings and generates action signals from cached snapshot IDs.
 
 Additional providers:

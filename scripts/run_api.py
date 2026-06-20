@@ -20,7 +20,9 @@ from services.api.app.mcp_tools import (
     call_eltdx_mcp_tool,
     list_eltdx_mcp_tools,
 )
+from services.api.app.pool_analysis import generate_stock_pool_mcp_analysis
 from services.api.app.repository import (
+    create_analysis_report,
     create_backtest,
     create_holding,
     create_market_fetch_log,
@@ -37,6 +39,7 @@ from services.api.app.repository import (
     latest_by_symbol,
     normalize_symbol,
     get_holding,
+    get_stock_pool,
     pool_symbols,
     update_holding,
     upsert_market_klines,
@@ -175,6 +178,10 @@ class FallbackHandler(BaseHTTPRequestHandler):
             elif path == "/workbench/actions/from-market":
                 with connect() as db:
                     self._send_json(_workbench_actions_from_market(db, payload))
+            elif path.startswith("/stock-pools/") and path.endswith("/mcp-analysis"):
+                pool_id = int(path.split("/")[2])
+                with connect() as db:
+                    self._send_json(_stock_pool_mcp_analysis(db, pool_id, payload))
             elif path.startswith(("/mcp/eltdx/tools/", "/mcp/tongdaxin/tools/")):
                 tool_name = unquote(path.rsplit("/", 1)[-1])
                 self._send_json(_call_tongdaxin_mcp_tool(tool_name, payload))
@@ -308,6 +315,50 @@ def _call_tongdaxin_mcp_tool(tool_name: str, payload: dict) -> dict:
         "tool_name": tool_name,
         "result": call_eltdx_mcp_tool(tool_name, arguments),
     }
+
+
+def _save_report(db, report: dict, persist: bool) -> dict:
+    if not persist:
+        return {
+            "id": None,
+            "report_type": report["report_type"],
+            "symbol": report.get("symbol"),
+            "created_at": report.get("generated_at"),
+            "payload": report,
+        }
+    saved = create_analysis_report(
+        db,
+        report_type=report["report_type"],
+        symbol=report.get("symbol"),
+        payload=report,
+        created_at=report.get("generated_at"),
+    )
+    return {
+        "id": saved["id"],
+        "report_type": saved["report_type"],
+        "symbol": saved["symbol"],
+        "created_at": saved["created_at"],
+        "payload": json.loads(saved["payload_json"]),
+    }
+
+
+def _stock_pool_mcp_analysis(db, pool_id: int, payload: dict) -> dict:
+    pool = get_stock_pool(db, pool_id)
+    if pool is None:
+        raise ValueError("Stock pool not found")
+    symbols = pool_symbols(db, pool_id)
+    report = generate_stock_pool_mcp_analysis(
+        pool=pool,
+        holdings=filter_rows_by_symbols(latest_by_symbol(list_holdings(db)), symbols),
+        watchlist=list_watchlist(db, pool_id=pool_id),
+        max_symbols=int(payload.get("max_symbols", 30)),
+        quote_tool=payload.get("quote_tool"),
+        profile_tool=payload.get("profile_tool"),
+        include_profile=bool(payload.get("include_profile", True)),
+        quote_arguments=payload.get("quote_arguments"),
+        profile_arguments=payload.get("profile_arguments"),
+    )
+    return _save_report(db, report, bool(payload.get("persist", True)))
 
 
 def _workbench_actions_from_market(db, payload: dict) -> dict:

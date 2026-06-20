@@ -19,6 +19,7 @@ The API can launch the `eltdx-mcp` stdio server per request and talk to it throu
 - `GET /mcp/eltdx/tools`
 - `POST /mcp/tongdaxin/tools/{tool_name}`
 - `POST /mcp/eltdx/tools/{tool_name}`
+- `POST /stock-pools/{pool_id}/mcp-analysis`
 
 Tool arguments are passed in the request body:
 
@@ -34,6 +35,8 @@ If the binary is not on PATH, set `TDX_ELTDX_MCP_COMMAND`, for example:
 ```bash
 export TDX_ELTDX_MCP_COMMAND='eltdx-mcp'
 ```
+
+The stock-pool analysis endpoint uses the selected personal stock pool as the full analysis scope. It lists MCP tools, selects quote/profile-like tools by name and description, builds arguments from the tool schema, calls them once per pool symbol, then stores a `stock_pool_mcp_analysis` report.
 
 Planned providers:
 

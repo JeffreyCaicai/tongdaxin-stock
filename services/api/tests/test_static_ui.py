@@ -39,6 +39,15 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("syncAutoName", html)
         self.assertIn("hydrateSymbolFromMarket", html)
 
+    def test_pool_analysis_button_uses_mcp_endpoint(self) -> None:
+        html = index_html()
+
+        self.assertIn('onclick="analyzePool()"', html)
+        self.assertIn("function analyzePool()", html)
+        self.assertIn("/mcp-analysis", html)
+        self.assertIn("renderPoolAnalysis", html)
+        self.assertIn('onclick="generateSignals()"', html)
+
 
 if __name__ == "__main__":
     unittest.main()

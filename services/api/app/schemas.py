@@ -220,6 +220,16 @@ class McpToolCallOut(BaseModel):
     result: dict[str, Any]
 
 
+class StockPoolMcpAnalysisRequest(BaseModel):
+    persist: bool = True
+    max_symbols: int = Field(default=30, ge=1, le=100)
+    quote_tool: str | None = None
+    profile_tool: str | None = None
+    include_profile: bool = True
+    quote_arguments: dict[str, Any] | None = None
+    profile_arguments: dict[str, Any] | None = None
+
+
 class IndicatorSnapshotOut(BaseModel):
     symbol: str
     source: str
