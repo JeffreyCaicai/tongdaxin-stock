@@ -54,6 +54,9 @@ class StaticUiTests(unittest.TestCase):
     def test_pool_analysis_button_uses_mcp_endpoint(self) -> None:
         html = index_html()
 
+        self.assertIn('class="pool-bar"', html)
+        self.assertIn('class="pool-create"', html)
+        self.assertIn('class="toolbar pool-actions"', html)
         self.assertIn('onclick="analyzePool()"', html)
         self.assertIn("function analyzePool()", html)
         self.assertIn("/mcp-analysis", html)

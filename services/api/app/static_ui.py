@@ -68,12 +68,23 @@ def index_html() -> str:
     .header-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
     .pool-bar {
-      display: grid;
-      grid-template-columns: minmax(180px, 260px) minmax(180px, 1fr) auto auto;
-      gap: 8px;
-      align-items: end;
-      margin-bottom: 14px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
     }
+    .pool-field { flex: 0 1 220px; }
+    .pool-field select,
+    .pool-field input { width: 100%; }
+    .pool-create {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      flex: 0 1 430px;
+    }
+    .pool-create .pool-field { flex: 1 1 280px; }
+    .pool-actions { margin-bottom: 16px; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 14px; }
     .panel {
       border: 1px solid #d9ded4;
@@ -99,7 +110,10 @@ def index_html() -> str:
       header { align-items: flex-start; flex-direction: column; }
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid #d9ded4; }
-      .pool-bar { grid-template-columns: 1fr; }
+      .pool-bar,
+      .pool-create { display: grid; grid-template-columns: 1fr; }
+      .pool-field,
+      .pool-create { width: 100%; }
       .grid { grid-template-columns: 1fr; }
     }
   </style>
@@ -140,18 +154,20 @@ def index_html() -> str:
     </aside>
     <section>
       <div class="pool-bar">
-        <div>
+        <div class="pool-field">
           <label for="poolSelect" data-i18n="selectedPool">当前股票池</label>
           <select id="poolSelect" onchange="setSelectedPool(this.value)"></select>
         </div>
-        <div>
-          <label for="newPoolName" data-i18n="newPoolName">新股票池</label>
-          <input id="newPoolName" data-i18n-placeholder="poolNamePlaceholder" placeholder="例如：短线观察">
+        <div class="pool-create">
+          <div class="pool-field">
+            <label for="newPoolName" data-i18n="newPoolName">新股票池</label>
+            <input id="newPoolName" data-i18n-placeholder="poolNamePlaceholder" placeholder="例如：短线观察">
+          </div>
+          <button class="secondary" onclick="createPool()" data-i18n="createPool">创建股票池</button>
         </div>
-        <button class="secondary" onclick="createPool()" data-i18n="createPool">创建股票池</button>
         <button onclick="analyzePool()" data-i18n="analyzePool">分析当前池</button>
       </div>
-      <div class="toolbar">
+      <div class="toolbar pool-actions">
         <button class="secondary" onclick="generateSignals()" data-i18n="generatePoolSignals">生成今日信号</button>
         <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">每日复盘</button>
         <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">运行回测</button>
