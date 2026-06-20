@@ -10,9 +10,11 @@ class StaticUiTests(unittest.TestCase):
         html = index_html()
 
         self.assertIn('id="languageSelect"', html)
+        self.assertIn('id="marketSourceSelect"', html)
         self.assertIn("通达信股票工作台", html)
         self.assertIn("Tongdaxin Stock Workbench", html)
         self.assertIn("setLanguage", html)
+        self.assertIn("eastmoneySource", html)
 
     def test_workbench_defaults_to_current_symbol_scope(self) -> None:
         html = index_html()
@@ -28,9 +30,10 @@ class StaticUiTests(unittest.TestCase):
         html = index_html()
 
         self.assertIn('id="symbol" value="600519" oninput="onSymbolChanged()"', html)
-        self.assertIn('id="name" value="Mock 600519" oninput="onNameChanged()"', html)
+        self.assertIn('id="name" value="" oninput="onNameChanged()"', html)
         self.assertIn("function onSymbolChanged()", html)
         self.assertIn("syncAutoName", html)
+        self.assertIn("hydrateSymbolFromMarket", html)
 
 
 if __name__ == "__main__":

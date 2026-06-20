@@ -14,14 +14,14 @@ def main() -> None:
         "/holdings",
         {
             "symbol": "600519",
-            "name": "Mock Moutai",
+            "name": "Offline Smoke 600519",
             "market": "SH",
             "quantity": 100,
             "cost_price": 95,
             "stop_loss": 88,
             "take_profit": 120,
             "max_loss_pct": 8,
-            "initial_thesis": "Smoke-test holding.",
+            "initial_thesis": "Offline mock smoke-test holding.",
         },
     )
     actions = post_json(

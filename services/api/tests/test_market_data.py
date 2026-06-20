@@ -4,6 +4,8 @@ import unittest
 
 from services.api.app.market_data import (
     MarketDataError,
+    _eastmoney_price,
+    _eastmoney_secid,
     get_market_data_provider,
 )
 
@@ -31,6 +33,17 @@ class MarketDataProviderTests(unittest.TestCase):
     def test_unknown_provider_raises_clear_error(self) -> None:
         with self.assertRaises(MarketDataError):
             get_market_data_provider("missing")
+
+    def test_eastmoney_helpers_normalize_market_and_price(self) -> None:
+        self.assertEqual(_eastmoney_secid("600519"), "1.600519")
+        self.assertEqual(_eastmoney_secid("688630"), "1.688630")
+        self.assertEqual(_eastmoney_secid("000001"), "0.000001")
+        self.assertEqual(_eastmoney_price(50200), 502.0)
+
+    def test_eastmoney_provider_can_be_selected_without_optional_dependency(self) -> None:
+        provider = get_market_data_provider("eastmoney")
+
+        self.assertEqual(provider.name, "eastmoney")
 
     def test_akshare_provider_reports_missing_optional_dependency(self) -> None:
         provider = get_market_data_provider("akshare")

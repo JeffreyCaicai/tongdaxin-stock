@@ -105,6 +105,12 @@ def index_html() -> str:
         <option value="zh">中文</option>
         <option value="en">English</option>
       </select>
+      <label for="marketSourceSelect" data-i18n="marketSource" style="margin:0">行情源</label>
+      <select id="marketSourceSelect" onchange="setMarketSource(this.value)">
+        <option value="eastmoney" data-i18n="eastmoneySource">Eastmoney 真实行情</option>
+        <option value="akshare" data-i18n="akshareSource">AkShare 真实行情</option>
+        <option value="mock" data-i18n="mockSource">Mock 演示行情</option>
+      </select>
       <span class="status" id="health" data-i18n="checking">检查中...</span>
     </div>
   </header>
@@ -112,9 +118,9 @@ def index_html() -> str:
     <aside>
       <h2 data-i18n="addHolding">新增持仓</h2>
       <label data-i18n="symbol">股票代码</label>
-      <input id="symbol" value="600519" oninput="onSymbolChanged()">
+      <input id="symbol" value="600519" oninput="onSymbolChanged()" onblur="hydrateSymbolFromMarket(false)">
       <label data-i18n="name">名称</label>
-      <input id="name" value="Mock 600519" oninput="onNameChanged()">
+      <input id="name" value="" oninput="onNameChanged()">
       <label data-i18n="quantity">数量</label>
       <input id="quantity" type="number" value="100">
       <label data-i18n="costPrice">成本价</label>
@@ -127,8 +133,10 @@ def index_html() -> str:
       <textarea id="initial_thesis">Manual plan with mock data.</textarea>
       <div class="toolbar" style="margin-top:14px">
         <button onclick="addHolding()" data-i18n="add">添加</button>
+        <button class="secondary" onclick="hydrateSymbolFromMarket(true)" data-i18n="fetchQuote">查询行情</button>
         <button class="secondary" onclick="refreshAll()" data-i18n="refresh">刷新</button>
       </div>
+      <p class="status" id="quoteStatus"></p>
     </aside>
     <section>
       <div class="toolbar">
@@ -193,6 +201,15 @@ def index_html() -> str:
         thesis: "买入理由",
         add: "添加",
         refresh: "刷新",
+        fetchQuote: "查询行情",
+        marketSource: "行情源",
+        eastmoneySource: "Eastmoney 真实行情",
+        akshareSource: "AkShare 真实行情",
+        mockSource: "Mock 演示行情",
+        quoteLoaded: "已读取行情",
+        quoteFailed: "行情读取失败",
+        mockSourceHint: "当前使用演示行情，名称和价格不代表真实市场。",
+        realSourceHint: "当前使用真实行情源。",
         generateSignals: "生成今日信号",
         dailyReview: "每日复盘",
         runBacktest: "运行回测",
@@ -257,6 +274,15 @@ def index_html() -> str:
         thesis: "Thesis",
         add: "Add",
         refresh: "Refresh",
+        fetchQuote: "Fetch Quote",
+        marketSource: "Market Source",
+        eastmoneySource: "Eastmoney Real",
+        akshareSource: "AkShare Real",
+        mockSource: "Mock Demo",
+        quoteLoaded: "Quote loaded",
+        quoteFailed: "Quote failed",
+        mockSourceHint: "Demo quotes are synthetic and do not represent the real market.",
+        realSourceHint: "Using a real market data source.",
         generateSignals: "Generate Signals",
         dailyReview: "Daily Review",
         runBacktest: "Run Backtest",
@@ -332,6 +358,8 @@ def index_html() -> str:
     };
     let currentLanguage = localStorage.getItem("tdx_language") || "zh";
     document.getElementById("languageSelect").value = currentLanguage;
+    let currentMarketSource = localStorage.getItem("tdx_market_source") || "eastmoney";
+    document.getElementById("marketSourceSelect").value = currentMarketSource;
 
     async function api(path, options) {
       const response = await fetch(path, options);
@@ -353,6 +381,12 @@ def index_html() -> str:
         node.textContent = t(node.dataset.i18n);
       });
       rerenderCachedPanels();
+      renderSourceStatus();
+    }
+    function setMarketSource(source) {
+      currentMarketSource = source;
+      localStorage.setItem("tdx_market_source", source);
+      renderSourceStatus();
     }
     function numberValue(id) {
       const value = document.getElementById(id).value;
@@ -362,7 +396,7 @@ def index_html() -> str:
     let cachedBacktest = null;
     let cachedHoldings = [];
     let cachedSignals = [];
-    let autoNameValue = "Mock 600519";
+    let autoNameValue = "";
     let nameEditedManually = false;
 
     async function checkHealth() {
@@ -370,6 +404,8 @@ def index_html() -> str:
       document.getElementById("health").textContent = health.mode ? `${t("running")} (${t("mode")}: ${health.mode})` : t("running");
     }
     async function addHolding() {
+      const quote = await hydrateSymbolFromMarket(false);
+      if (!quote && marketSource() !== "mock") return;
       const payload = {
         symbol: document.getElementById("symbol").value,
         name: document.getElementById("name").value,
@@ -398,7 +434,7 @@ def index_html() -> str:
       return api(`/holdings/${holdingId}/signals/from-market`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({source: "mock", persist: true, include_technical: true})
+        body: JSON.stringify({source: marketSource(), persist: true, include_technical: false})
       });
     }
     async function refreshAll() {
@@ -411,7 +447,7 @@ def index_html() -> str:
       const result = await api("/workbench/actions/from-market", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({source: "mock", persist: true, include_technical: true})
+        body: JSON.stringify({source: marketSource(), persist: true, include_technical: false})
       });
       await refreshAll();
       document.getElementById("review").innerHTML = `<p class="summary">${t("generatedSignals")}: ${result.generated_signals}</p>`;
@@ -425,7 +461,7 @@ def index_html() -> str:
       cachedBacktest = await api(`/backtests/${encodeURIComponent(symbol)}`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({source: "mock", limit: 160, persist: true})
+        body: JSON.stringify({source: marketSource(), limit: 160, persist: true})
       });
       renderBacktest(cachedBacktest);
     }
@@ -462,6 +498,32 @@ def index_html() -> str:
     function onNameChanged() {
       nameEditedManually = true;
     }
+    function marketSource() {
+      return document.getElementById("marketSourceSelect").value || "eastmoney";
+    }
+    async function hydrateSymbolFromMarket(forceMessage) {
+      const symbol = currentSymbol();
+      if (!symbol) return null;
+      if (marketSource() === "mock") {
+        if (forceMessage) renderSourceStatus();
+        return null;
+      }
+      try {
+        const quote = await api(`/market/quote/${encodeURIComponent(symbol)}?source=${encodeURIComponent(marketSource())}`);
+        const marketName = quote.payload?.name || quote.name || "";
+        if (marketName) {
+          const nameInput = document.getElementById("name");
+          nameInput.value = marketName;
+          autoNameValue = marketName;
+          nameEditedManually = false;
+        }
+        document.getElementById("quoteStatus").textContent = `${t("quoteLoaded")}: ${marketName || symbol} ${formatPrice(quote.price)} (${quote.source})`;
+        return quote;
+      } catch (error) {
+        document.getElementById("quoteStatus").textContent = `${t("quoteFailed")}: ${error.message}`;
+        return null;
+      }
+    }
     function currentSymbol() {
       return normalizeSymbolText(document.getElementById("symbol").value);
     }
@@ -477,9 +539,13 @@ def index_html() -> str:
       const symbol = currentSymbol();
       const nameInput = document.getElementById("name");
       if (nameEditedManually && nameInput.value !== autoNameValue) return;
-      autoNameValue = symbol ? `Mock ${symbol}` : "";
+      autoNameValue = "";
       nameInput.value = autoNameValue;
       nameEditedManually = false;
+    }
+    function renderSourceStatus() {
+      const text = marketSource() === "mock" ? t("mockSourceHint") : t("realSourceHint");
+      document.getElementById("quoteStatus").textContent = text;
     }
     function renderDailyReview(report) {
       const payload = report.payload || report;
@@ -521,6 +587,10 @@ def index_html() -> str:
     function percent(value) {
       if (value === null || value === undefined) return "-";
       return `${(Number(value) * 100).toFixed(2)}%`;
+    }
+    function formatPrice(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      return Number(value).toFixed(2);
     }
     function table(rows, fields) {
       if (!rows.length) return `<p class="status">${t("noData")}</p>`;

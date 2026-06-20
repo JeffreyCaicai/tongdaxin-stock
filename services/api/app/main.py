@@ -215,6 +215,7 @@ def _quote_payload_to_output(snapshot: dict, payload: dict) -> dict:
     return {
         "snapshot_id": snapshot["id"],
         "symbol": snapshot["symbol"],
+        "name": payload.get("name"),
         "source": snapshot["source"],
         "price": payload["price"],
         "open": payload.get("open"),
@@ -228,6 +229,20 @@ def _quote_payload_to_output(snapshot: dict, payload: dict) -> dict:
         "fetched_at": snapshot["fetched_at"],
         "payload": payload,
     }
+
+
+def _sync_holding_name_from_quote(
+    db: sqlite3.Connection,
+    holding: dict,
+    quote: dict,
+) -> None:
+    payload = quote.get("payload") or quote
+    name = payload.get("name")
+    if not name or payload.get("is_mock"):
+        return
+    if holding.get("name") == name:
+        return
+    update_holding(db, int(holding["id"]), {"name": name})
 
 
 def _fetch_quote_and_cache(
@@ -471,6 +486,7 @@ def api_evaluate_holding_signal_from_market(
 
     symbol = normalize_symbol(holding["symbol"])
     quote = _fetch_quote_and_cache(db, symbol=symbol, source=payload.source)
+    _sync_holding_name_from_quote(db, holding, quote)
     indicators = (
         _indicator_snapshot_for_symbol(
             db,
@@ -574,7 +590,7 @@ def api_run_backtest(
 
 @app.get("/reviews/signals", response_model=SignalReviewOut)
 def api_review_signals(
-    source: str = "mock",
+    source: str = "eastmoney",
     limit: int = Query(default=100, ge=1, le=500),
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
@@ -592,7 +608,7 @@ def api_review_signals(
 @app.get("/market/quote/{symbol}", response_model=MarketQuoteOut)
 def api_fetch_market_quote(
     symbol: str,
-    source: str = "mock",
+    source: str = "eastmoney",
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
     return _fetch_quote_and_cache(db, symbol=symbol, source=source)
@@ -601,7 +617,7 @@ def api_fetch_market_quote(
 @app.get("/market/kline/{symbol}", response_model=MarketKlineOut)
 def api_fetch_market_kline(
     symbol: str,
-    source: str = "mock",
+    source: str = "eastmoney",
     period: str = "daily",
     limit: int = Query(default=120, ge=1, le=1000),
     db: sqlite3.Connection = Depends(get_db),
@@ -614,7 +630,7 @@ def api_fetch_market_kline(
 @app.get("/market/indicators/{symbol}", response_model=IndicatorSnapshotOut)
 def api_get_market_indicators(
     symbol: str,
-    source: str = "mock",
+    source: str = "eastmoney",
     period: str = "daily",
     limit: int = Query(default=120, ge=35, le=1000),
     refresh: bool = False,
@@ -633,7 +649,7 @@ def api_get_market_indicators(
 @app.get("/reports/stock/{symbol}", response_model=ReportOut)
 def api_generate_stock_report(
     symbol: str,
-    source: str = "mock",
+    source: str = "eastmoney",
     refresh: bool = True,
     persist: bool = True,
     db: sqlite3.Connection = Depends(get_db),
@@ -664,7 +680,7 @@ def api_generate_stock_report(
 @app.get("/reports/trading-plan/{holding_id}", response_model=ReportOut)
 def api_generate_trading_plan(
     holding_id: int,
-    source: str = "mock",
+    source: str = "eastmoney",
     persist: bool = True,
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
@@ -808,6 +824,7 @@ def api_generate_workbench_actions_from_market(
         except HTTPException:
             missing_prices.append(symbol)
             continue
+        _sync_holding_name_from_quote(db, holding, quote)
 
         signal = evaluate_holding_signal(
             holding,

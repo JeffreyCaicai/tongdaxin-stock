@@ -124,6 +124,7 @@ class WorkbenchActionOut(BaseModel):
 class MarketQuoteOut(BaseModel):
     snapshot_id: int
     symbol: str
+    name: str | None = None
     source: str
     price: float
     open: float | None = None
@@ -171,9 +172,9 @@ class MarketFetchLogOut(BaseModel):
 
 
 class WorkbenchMarketActionRequest(BaseModel):
-    source: str = "mock"
+    source: str = "eastmoney"
     persist: bool = True
-    include_technical: bool = True
+    include_technical: bool = False
     kline_limit: int = Field(default=120, ge=35, le=1000)
 
 

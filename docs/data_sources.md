@@ -25,9 +25,11 @@ Each adapter should normalize output into project-owned structures:
 
 The rule engine should never depend directly on provider-specific payloads.
 
-## Current PoC
+## Current Providers
 
-The API currently includes a `mock` provider that returns deterministic quote and daily K-line data. This provider exists so the cache, signal, and workbench paths can be developed without external network access or real credentials.
+The API includes a zero-dependency `eastmoney` provider for real A-share quote/K-line data. The workbench defaults to this provider for names and latest quote prices.
+
+The API also includes a `mock` provider that returns deterministic quote and daily K-line data. This provider exists only so the cache, signal, and workbench paths can be developed without external network access or real credentials.
 
 Implemented endpoints:
 
@@ -38,8 +40,10 @@ Implemented endpoints:
 - `GET /market/fetch-logs` lists success/error records for provider calls.
 - `POST /workbench/actions/from-market` fetches quotes for all holdings and generates action signals from cached snapshot IDs.
 
-Optional provider:
+Additional providers:
 
+- `source=eastmoney` uses Eastmoney public quote/K-line endpoints and requires no extra Python package.
 - `source=akshare` uses AkShare when the package is installed locally. If it is not installed, the API returns a clear provider error and the app can continue using `source=mock`.
+- `source=mock` uses synthetic demo data and should not be treated as market truth.
 
 Next provider target: `eltdx`, because it keeps the MVP close to the Tongdaxin ecosystem while avoiding official token dependencies.

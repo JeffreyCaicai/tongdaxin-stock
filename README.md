@@ -10,8 +10,8 @@
 - 已选择 `Tauri + React` 作为桌面端方向，MVP 先以本地 FastAPI 服务打通数据和规则闭环。
 - 已建立 SQLite schema、持仓 CRUD、目标池 CRUD 和基础信号评估入口。
 - 已支持持仓/目标池 CSV 导入导出、信号历史查询和工作台批量行动信号生成。
-- 数据源已具备 provider 抽象和 mock PoC，可拉取单股 quote/K 线并缓存到 SQLite；后续接入 `eltdx`、AkShare 或通达信 Token 路线。
-- 可选 AkShare provider 已接入；安装 `akshare` 后可用 `source=akshare` 拉真实 A 股 quote/K 线。无依赖环境默认使用 `source=mock`。
+- 数据源已具备 provider 抽象，默认使用零依赖 `source=eastmoney` 拉真实 A 股 quote，并缓存到 SQLite；`source=mock` 仅用于离线演示和测试。
+- 可选 AkShare provider 已接入；安装 `akshare` 后可用 `source=akshare` 拉真实 A 股 quote/K 线。
 
 ## 目录结构
 
@@ -90,28 +90,28 @@ curl -X POST http://127.0.0.1:8765/workbench/actions \
   -d '{"prices":{"600519":1500,"000001":12.2},"persist":true}'
 ```
 
-从 mock 行情源自动拉 quote 并生成行动信号：
+从真实行情源自动拉 quote 并生成行动信号：
 
 ```bash
 curl -X POST http://127.0.0.1:8765/workbench/actions/from-market \
   -H "Content-Type: application/json" \
-  -d '{"source":"mock","persist":true}'
+  -d '{"source":"eastmoney","persist":true}'
 ```
 
 拉取单股 quote / K 线：
 
 ```bash
-curl "http://127.0.0.1:8765/market/quote/600519?source=mock"
-curl "http://127.0.0.1:8765/market/kline/600519?source=mock&period=daily&limit=30"
+curl "http://127.0.0.1:8765/market/quote/600519?source=eastmoney"
+curl "http://127.0.0.1:8765/market/kline/600519?source=eastmoney&period=daily&limit=30"
 ```
 
 生成报告和回测：
 
 ```bash
-curl "http://127.0.0.1:8765/reports/stock/600519?source=mock"
+curl "http://127.0.0.1:8765/reports/stock/600519?source=eastmoney"
 curl -X POST http://127.0.0.1:8765/backtests/600519 \
   -H "Content-Type: application/json" \
-  -d '{"source":"mock","limit":240,"persist":true}'
+  -d '{"source":"eastmoney","limit":240,"persist":true}'
 ```
 
 ## 测试

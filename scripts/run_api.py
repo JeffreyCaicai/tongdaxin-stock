@@ -105,12 +105,12 @@ class FallbackHandler(BaseHTTPRequestHandler):
                     self._send_json(report)
             elif path.startswith("/market/quote/"):
                 symbol = path.rsplit("/", 1)[-1]
-                source = _query_value(query, "source", "mock")
+                source = _query_value(query, "source", "eastmoney")
                 with connect() as db:
                     self._send_json(_fetch_quote(db, symbol=symbol, source=source))
             elif path.startswith("/market/kline/"):
                 symbol = path.rsplit("/", 1)[-1]
-                source = _query_value(query, "source", "mock")
+                source = _query_value(query, "source", "eastmoney")
                 limit = int(_query_value(query, "limit", "120"))
                 with connect() as db:
                     self._send_json(_fetch_kline(db, symbol=symbol, source=source, limit=limit))
@@ -215,6 +215,15 @@ def _fetch_quote(db, *, symbol: str, source: str) -> dict:
     return {"snapshot_id": snapshot["id"], **quote}
 
 
+def _sync_holding_name_from_quote(db, holding: dict, quote: dict) -> None:
+    name = quote.get("name")
+    if not name or quote.get("is_mock"):
+        return
+    if holding.get("name") == name:
+        return
+    update_holding(db, int(holding["id"]), {"name": name})
+
+
 def _fetch_kline(db, *, symbol: str, source: str, limit: int) -> dict:
     provider = get_market_data_provider(source)
     bars = provider.fetch_kline(symbol, limit=limit)
@@ -243,9 +252,9 @@ def _fetch_kline(db, *, symbol: str, source: str, limit: int) -> dict:
 
 
 def _workbench_actions_from_market(db, payload: dict) -> dict:
-    source = payload.get("source", "mock")
+    source = payload.get("source", "eastmoney")
     persist = bool(payload.get("persist", True))
-    include_technical = bool(payload.get("include_technical", True))
+    include_technical = bool(payload.get("include_technical", False))
     kline_limit = int(payload.get("kline_limit", 120))
     signals: list[dict] = []
     missing_prices: list[str] = []
@@ -278,12 +287,13 @@ def _workbench_actions_from_market(db, payload: dict) -> dict:
 
 
 def _holding_signal_from_market(db, holding: dict, payload: dict) -> dict:
-    source = payload.get("source", "mock")
+    source = payload.get("source", "eastmoney")
     persist = bool(payload.get("persist", True))
-    include_technical = bool(payload.get("include_technical", True))
+    include_technical = bool(payload.get("include_technical", False))
     kline_limit = int(payload.get("kline_limit", 120))
     symbol = normalize_symbol(holding["symbol"])
     quote = _fetch_quote(db, symbol=symbol, source=source)
+    _sync_holding_name_from_quote(db, holding, quote)
     indicators = None
     if include_technical:
         kline = _fetch_kline(db, symbol=symbol, source=source, limit=kline_limit)

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import math
+import json
 from datetime import date, timedelta
 from typing import Any, Protocol
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from .repository import normalize_symbol, utc_now
 
@@ -181,14 +185,111 @@ class AkShareMarketDataProvider:
         return bars
 
 
+class EastmoneyMarketDataProvider:
+    name = "eastmoney"
+
+    def fetch_quote(self, symbol: str) -> dict[str, Any]:
+        normalized_symbol = normalize_symbol(symbol)
+        data = _eastmoney_json(
+            "https://push2.eastmoney.com/api/qt/stock/get",
+            {
+                "secid": _eastmoney_secid(normalized_symbol),
+                "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f59,f60,f169,f170",
+            },
+        ).get("data")
+        if not data:
+            raise MarketDataError(f"Eastmoney quote not found for {normalized_symbol}")
+
+        price = _required_eastmoney_price(data.get("f43"), "最新价")
+        previous_close = _eastmoney_price(data.get("f60"))
+        change = _eastmoney_price(data.get("f169"))
+        pct_change = _eastmoney_percent(data.get("f170"))
+
+        return {
+            "symbol": normalized_symbol,
+            "name": data.get("f58"),
+            "source": self.name,
+            "price": price,
+            "open": _eastmoney_price(data.get("f46")),
+            "high": _eastmoney_price(data.get("f44")),
+            "low": _eastmoney_price(data.get("f45")),
+            "previous_close": previous_close,
+            "change": change,
+            "pct_change": pct_change,
+            "volume": _safe_float(data.get("f47")),
+            "amount": _safe_float(data.get("f48")),
+            "fetched_at": utc_now(),
+            "raw": _jsonable(data),
+        }
+
+    def fetch_kline(
+        self,
+        symbol: str,
+        *,
+        period: str = "daily",
+        limit: int = 120,
+    ) -> list[dict[str, Any]]:
+        if period != "daily":
+            raise MarketDataError("Eastmoney provider currently supports daily kline only")
+
+        normalized_symbol = normalize_symbol(symbol)
+        data = _eastmoney_json(
+            "https://push2his.eastmoney.com/api/qt/stock/kline/get",
+            {
+                "secid": _eastmoney_secid(normalized_symbol),
+                "fields1": "f1,f2,f3,f4,f5,f6",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+                "klt": "101",
+                "fqt": "1",
+                "end": "20500101",
+                "lmt": str(max(1, min(limit, 1000))),
+            },
+        ).get("data")
+        if not data or not data.get("klines"):
+            raise MarketDataError(f"Eastmoney kline not found for {normalized_symbol}")
+
+        bars: list[dict[str, Any]] = []
+        for raw in data["klines"][-limit:]:
+            fields = raw.split(",")
+            if len(fields) < 11:
+                continue
+            bars.append(
+                {
+                    "symbol": normalized_symbol,
+                    "source": self.name,
+                    "period": period,
+                    "trade_date": fields[0],
+                    "open": _required_float(fields[1], "开盘"),
+                    "close": _required_float(fields[2], "收盘"),
+                    "high": _required_float(fields[3], "最高"),
+                    "low": _required_float(fields[4], "最低"),
+                    "volume": _safe_float(fields[5]),
+                    "amount": _safe_float(fields[6]),
+                    "payload": {
+                        "amplitude": _safe_float(fields[7]),
+                        "pct_change": _safe_float(fields[8]),
+                        "change": _safe_float(fields[9]),
+                        "turnover_rate": _safe_float(fields[10]),
+                        "name": data.get("name"),
+                    },
+                }
+            )
+
+        if not bars:
+            raise MarketDataError(f"Eastmoney kline payload was empty for {normalized_symbol}")
+        return bars
+
+
 def get_market_data_provider(source: str | None) -> MarketDataProvider:
     source_name = (source or "mock").strip().lower()
     if source_name == "mock":
         return MockMarketDataProvider()
+    if source_name in {"eastmoney", "real"}:
+        return EastmoneyMarketDataProvider()
     if source_name == "akshare":
         return AkShareMarketDataProvider()
     raise MarketDataError(
-        f"Unsupported market data source '{source_name}'. Available sources: mock, akshare."
+        f"Unsupported market data source '{source_name}'. Available sources: eastmoney, akshare, mock."
     )
 
 
@@ -217,6 +318,60 @@ def _load_akshare() -> Any:
             "AkShare is not installed. Install it with 'pip install akshare' or use source=mock."
         ) from exc
     return akshare
+
+
+def _eastmoney_secid(symbol: str) -> str:
+    normalized_symbol = normalize_symbol(symbol)
+    if normalized_symbol.startswith(("5", "6", "9")):
+        market_id = "1"
+    else:
+        market_id = "0"
+    return f"{market_id}.{normalized_symbol}"
+
+
+def _eastmoney_json(base_url: str, params: dict[str, str]) -> dict[str, Any]:
+    url = f"{base_url}?{urlencode(params)}"
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://quote.eastmoney.com/",
+        },
+    )
+    last_error: Exception | None = None
+    for _ in range(2):
+        try:
+            with urlopen(request, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            break
+        except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+            last_error = exc
+    else:
+        raise MarketDataError(f"Eastmoney request failed: {last_error}") from last_error
+    if payload.get("rc") not in {0, None}:
+        raise MarketDataError(f"Eastmoney returned error code {payload.get('rc')}")
+    return payload
+
+
+def _eastmoney_price(value: Any) -> float | None:
+    parsed = _safe_float(value)
+    if parsed is None:
+        return None
+    return round(parsed / 100, 4)
+
+
+def _required_eastmoney_price(value: Any, field_name: str) -> float:
+    parsed = _eastmoney_price(value)
+    if parsed is None:
+        raise MarketDataError(f"Eastmoney returned empty numeric field: {field_name}")
+    return parsed
+
+
+def _eastmoney_percent(value: Any) -> float | None:
+    parsed = _safe_float(value)
+    if parsed is None:
+        return None
+    return round(parsed / 100, 4)
 
 
 def _safe_float(value: Any) -> float | None:
