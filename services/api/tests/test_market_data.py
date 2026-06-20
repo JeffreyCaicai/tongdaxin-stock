@@ -6,6 +6,7 @@ from services.api.app.market_data import (
     MarketDataError,
     _eastmoney_price,
     _eastmoney_secid,
+    _tdx_code,
     get_market_data_provider,
 )
 
@@ -44,6 +45,13 @@ class MarketDataProviderTests(unittest.TestCase):
         provider = get_market_data_provider("eastmoney")
 
         self.assertEqual(provider.name, "eastmoney")
+
+    def test_tongdaxin_provider_is_primary_source_alias(self) -> None:
+        provider = get_market_data_provider("tongdaxin")
+
+        self.assertEqual(provider.name, "eltdx")
+        self.assertEqual(_tdx_code("600519"), "sh600519")
+        self.assertEqual(_tdx_code("000001"), "sz000001")
 
     def test_akshare_provider_reports_missing_optional_dependency(self) -> None:
         provider = get_market_data_provider("akshare")

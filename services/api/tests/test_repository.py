@@ -12,8 +12,10 @@ from services.api.app.repository import (
     create_market_fetch_log,
     create_market_snapshot,
     create_signal,
+    create_stock_pool,
     create_watchlist_item,
     delete_holding,
+    get_default_stock_pool,
     get_holding,
     latest_by_symbol,
     list_holdings,
@@ -23,6 +25,7 @@ from services.api.app.repository import (
     list_market_klines,
     list_market_snapshots,
     list_signals,
+    list_stock_pools,
     list_watchlist,
     update_holding,
     upsert_market_klines,
@@ -83,9 +86,14 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in latest], [3, 2])
 
     def test_create_watchlist_item(self) -> None:
+        pool = create_stock_pool(
+            self.connection,
+            {"name": "短线观察", "description": "Short-term candidates."},
+        )
         item = create_watchlist_item(
             self.connection,
             {
+                "pool_id": pool["id"],
                 "symbol": "000001",
                 "name": "Ping An Bank",
                 "market": "SZ",
@@ -95,7 +103,17 @@ class RepositoryTests(unittest.TestCase):
         )
 
         self.assertEqual(item["symbol"], "000001")
-        self.assertEqual(list_watchlist(self.connection)[0]["priority"], 2)
+        self.assertEqual(item["pool_id"], pool["id"])
+        self.assertEqual(
+            list_watchlist(self.connection, pool_id=pool["id"])[0]["priority"], 2
+        )
+
+    def test_default_stock_pool_is_created(self) -> None:
+        pool = get_default_stock_pool(self.connection)
+
+        self.assertEqual(pool["name"], "默认股票池")
+        self.assertTrue(pool["is_default"])
+        self.assertEqual(len(list_stock_pools(self.connection)), 1)
 
     def test_list_signals_can_filter_by_symbol(self) -> None:
         create_signal(
@@ -233,3 +251,4 @@ class RepositoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+    get_default_stock_pool,

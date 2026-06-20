@@ -21,12 +21,18 @@ from services.api.app.repository import (
     create_market_fetch_log,
     create_market_snapshot,
     create_signal,
+    create_stock_pool,
+    create_watchlist_item,
+    filter_rows_by_symbols,
     list_holdings,
     list_market_fetch_logs,
     list_signals,
+    list_stock_pools,
+    list_watchlist,
     latest_by_symbol,
     normalize_symbol,
     get_holding,
+    pool_symbols,
     update_holding,
     upsert_market_klines,
     utc_now,
@@ -73,6 +79,13 @@ class FallbackHandler(BaseHTTPRequestHandler):
             elif path == "/holdings":
                 with connect() as db:
                     self._send_json(list_holdings(db))
+            elif path == "/stock-pools":
+                with connect() as db:
+                    self._send_json(list_stock_pools(db))
+            elif path == "/watchlist":
+                pool_id = _query_int(query, "pool_id")
+                with connect() as db:
+                    self._send_json(list_watchlist(db, pool_id=pool_id))
             elif path == "/signals":
                 symbol = _query_value(query, "symbol", "")
                 limit = int(_query_value(query, "limit", "100"))
@@ -92,25 +105,33 @@ class FallbackHandler(BaseHTTPRequestHandler):
                     self._send_json(list_market_fetch_logs(db))
             elif path == "/reports/daily-review":
                 limit = int(_query_value(query, "signal_limit", "100"))
+                pool_id = _query_int(query, "pool_id")
                 with connect() as db:
+                    symbols = pool_symbols(db, pool_id) if pool_id else set()
                     signals = [
-                        _signal_row_to_output(row)
-                        for row in list_signals(db, limit=limit)
+                        signal
+                        for signal in [
+                            _signal_row_to_output(row)
+                            for row in list_signals(db, limit=limit)
+                        ]
+                        if not symbols or normalize_symbol(signal["symbol"]) in symbols
                     ]
                     report = generate_daily_review(
-                        holdings=latest_by_symbol(list_holdings(db)),
+                        holdings=filter_rows_by_symbols(
+                            latest_by_symbol(list_holdings(db)), symbols
+                        ),
                         signals=signals,
                         fetch_logs=list_market_fetch_logs(db, limit=limit),
                     )
                     self._send_json(report)
             elif path.startswith("/market/quote/"):
                 symbol = path.rsplit("/", 1)[-1]
-                source = _query_value(query, "source", "eastmoney")
+                source = _query_value(query, "source", "tongdaxin")
                 with connect() as db:
                     self._send_json(_fetch_quote(db, symbol=symbol, source=source))
             elif path.startswith("/market/kline/"):
                 symbol = path.rsplit("/", 1)[-1]
-                source = _query_value(query, "source", "eastmoney")
+                source = _query_value(query, "source", "tongdaxin")
                 limit = int(_query_value(query, "limit", "120"))
                 with connect() as db:
                     self._send_json(_fetch_kline(db, symbol=symbol, source=source, limit=limit))
@@ -128,6 +149,12 @@ class FallbackHandler(BaseHTTPRequestHandler):
             if path == "/holdings":
                 with connect() as db:
                     self._send_json(create_holding(db, payload), status=201)
+            elif path == "/stock-pools":
+                with connect() as db:
+                    self._send_json(create_stock_pool(db, payload), status=201)
+            elif path == "/watchlist":
+                with connect() as db:
+                    self._send_json(create_watchlist_item(db, payload), status=201)
             elif path.startswith("/holdings/") and path.endswith("/signals/from-market"):
                 holding_id = int(path.split("/")[2])
                 with connect() as db:
@@ -252,13 +279,15 @@ def _fetch_kline(db, *, symbol: str, source: str, limit: int) -> dict:
 
 
 def _workbench_actions_from_market(db, payload: dict) -> dict:
-    source = payload.get("source", "eastmoney")
+    source = payload.get("source", "tongdaxin")
     persist = bool(payload.get("persist", True))
     include_technical = bool(payload.get("include_technical", False))
     kline_limit = int(payload.get("kline_limit", 120))
     signals: list[dict] = []
     missing_prices: list[str] = []
-    holdings = latest_by_symbol(list_holdings(db))
+    pool_id = payload.get("pool_id")
+    symbols = pool_symbols(db, int(pool_id)) if pool_id else set()
+    holdings = filter_rows_by_symbols(latest_by_symbol(list_holdings(db)), symbols)
 
     for holding in holdings:
         symbol = normalize_symbol(holding["symbol"])
@@ -287,7 +316,7 @@ def _workbench_actions_from_market(db, payload: dict) -> dict:
 
 
 def _holding_signal_from_market(db, holding: dict, payload: dict) -> dict:
-    source = payload.get("source", "eastmoney")
+    source = payload.get("source", "tongdaxin")
     persist = bool(payload.get("persist", True))
     include_technical = bool(payload.get("include_technical", False))
     kline_limit = int(payload.get("kline_limit", 120))
@@ -308,7 +337,7 @@ def _holding_signal_from_market(db, holding: dict, payload: dict) -> dict:
 
 
 def _run_backtest(db, *, symbol: str, payload: dict) -> dict:
-    source = payload.get("source", "mock")
+    source = payload.get("source", "tongdaxin")
     limit = int(payload.get("limit", 240))
     initial_equity = float(payload.get("initial_equity", 100000.0))
     stop_loss_pct = float(payload.get("stop_loss_pct", 6.0))
@@ -400,6 +429,13 @@ def _signal_row_to_output(row: dict) -> dict:
 def _query_value(query: dict[str, list[str]], key: str, default: str) -> str:
     values = query.get(key)
     return values[0] if values else default
+
+
+def _query_int(query: dict[str, list[str]], key: str) -> int | None:
+    values = query.get(key)
+    if not values or values[0] == "":
+        return None
+    return int(values[0])
 
 
 if __name__ == "__main__":

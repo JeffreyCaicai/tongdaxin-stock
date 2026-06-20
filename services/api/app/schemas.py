@@ -45,7 +45,32 @@ class HoldingOut(HoldingBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class StockPoolBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    description: str | None = None
+    is_default: bool = False
+
+
+class StockPoolCreate(StockPoolBase):
+    pass
+
+
+class StockPoolUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = None
+    is_default: bool | None = None
+
+
+class StockPoolOut(StockPoolBase):
+    id: int
+    created_at: str
+    updated_at: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class WatchlistBase(BaseModel):
+    pool_id: int | None = None
     symbol: str = Field(..., min_length=1, max_length=16)
     name: str | None = None
     market: str | None = "A"
@@ -111,6 +136,7 @@ class WorkbenchActionRequest(BaseModel):
         description="Current prices keyed by stock symbol.",
     )
     persist: bool = True
+    pool_id: int | None = None
 
 
 class WorkbenchActionOut(BaseModel):
@@ -172,10 +198,11 @@ class MarketFetchLogOut(BaseModel):
 
 
 class WorkbenchMarketActionRequest(BaseModel):
-    source: str = "eastmoney"
+    source: str = "tongdaxin"
     persist: bool = True
     include_technical: bool = False
     kline_limit: int = Field(default=120, ge=35, le=1000)
+    pool_id: int | None = None
 
 
 class IndicatorSnapshotOut(BaseModel):
@@ -194,7 +221,7 @@ class ReportOut(BaseModel):
 
 
 class BacktestRequest(BaseModel):
-    source: str = "mock"
+    source: str = "tongdaxin"
     period: str = "daily"
     limit: int = Field(default=240, ge=80, le=1000)
     initial_equity: float = Field(default=100000.0, gt=0)

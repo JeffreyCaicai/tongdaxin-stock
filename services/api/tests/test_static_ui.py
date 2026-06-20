@@ -11,9 +11,11 @@ class StaticUiTests(unittest.TestCase):
 
         self.assertIn('id="languageSelect"', html)
         self.assertIn('id="marketSourceSelect"', html)
+        self.assertIn('value="tongdaxin"', html)
         self.assertIn("通达信股票工作台", html)
         self.assertIn("Tongdaxin Stock Workbench", html)
         self.assertIn("setLanguage", html)
+        self.assertIn("tongdaxinSource", html)
         self.assertIn("eastmoneySource", html)
 
     def test_workbench_defaults_to_current_symbol_scope(self) -> None:
@@ -21,6 +23,8 @@ class StaticUiTests(unittest.TestCase):
 
         self.assertIn('id="holdingScope"', html)
         self.assertIn('id="signalScope"', html)
+        self.assertIn('id="poolSelect"', html)
+        self.assertIn("selectedPoolId", html)
         self.assertIn('value="current"', html)
         self.assertIn("currentHoldingsHint", html)
         self.assertIn("currentLatestSignalsHint", html)

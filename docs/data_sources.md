@@ -27,9 +27,14 @@ The rule engine should never depend directly on provider-specific payloads.
 
 ## Current Providers
 
-The API includes a zero-dependency `eastmoney` provider for real A-share quote/K-line data. The workbench defaults to this provider for names and latest quote prices.
+The primary route is Tongdaxin protocol/MCP:
 
-The API also includes a `mock` provider that returns deterministic quote and daily K-line data. This provider exists only so the cache, signal, and workbench paths can be developed without external network access or real credentials.
+- `source=tongdaxin` / `source=eltdx` uses the optional `eltdx` provider.
+- Install with `pip install "eltdx[mcp]"`.
+- Run `eltdx-mcp` when an MCP stdio server is needed for Agent tools.
+- In-process API calls use `eltdx.TdxClient` so the local workbench can still normalize quote/K-line data into project-owned schemas.
+
+The API also includes a zero-dependency `eastmoney` provider for fallback quote checks and cross-validation, plus a `mock` provider for deterministic offline tests.
 
 Implemented endpoints:
 
@@ -42,8 +47,9 @@ Implemented endpoints:
 
 Additional providers:
 
-- `source=eastmoney` uses Eastmoney public quote/K-line endpoints and requires no extra Python package.
+- `source=tongdaxin` / `source=eltdx` uses Tongdaxin protocol through eltdx.
+- `source=eastmoney` uses Eastmoney public quote/K-line endpoints as fallback and requires no extra Python package.
 - `source=akshare` uses AkShare when the package is installed locally. If it is not installed, the API returns a clear provider error and the app can continue using `source=mock`.
 - `source=mock` uses synthetic demo data and should not be treated as market truth.
 
-Next provider target: `eltdx`, because it keeps the MVP close to the Tongdaxin ecosystem while avoiding official token dependencies.
+Next provider target: official Tongdaxin Token/OpenClaw once credentials are available, then local TdxQuant when the user has a configured terminal.

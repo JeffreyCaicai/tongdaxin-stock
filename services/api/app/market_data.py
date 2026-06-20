@@ -185,6 +185,83 @@ class AkShareMarketDataProvider:
         return bars
 
 
+class EltdxMarketDataProvider:
+    name = "eltdx"
+
+    def fetch_quote(self, symbol: str) -> dict[str, Any]:
+        TdxClient, to_jsonable = _load_eltdx()
+        normalized_symbol = normalize_symbol(symbol)
+        tdx_code = _tdx_code(normalized_symbol)
+        with TdxClient(timeout=5) as client:
+            raw_quote = client.get_quote([tdx_code])[0]
+        data = to_jsonable(raw_quote) if to_jsonable else _jsonable_object(raw_quote)
+
+        price = _first_required_float(
+            data,
+            ("price", "last_price", "now", "现价", "最新价", "close"),
+            "price",
+        )
+        previous_close = _first_float(data, ("previous_close", "pre_close", "昨收"))
+        change = _first_float(data, ("change", "涨跌", "涨跌额"))
+        pct_change = _first_float(data, ("pct_change", "change_pct", "涨幅", "涨跌幅"))
+
+        return {
+            "symbol": normalized_symbol,
+            "name": _first_text(data, ("name", "stock_name", "名称")),
+            "source": self.name,
+            "price": price,
+            "open": _first_float(data, ("open", "开盘", "今开")),
+            "high": _first_float(data, ("high", "最高")),
+            "low": _first_float(data, ("low", "最低")),
+            "previous_close": previous_close,
+            "change": change,
+            "pct_change": pct_change,
+            "volume": _first_float(data, ("volume", "vol", "成交量")),
+            "amount": _first_float(data, ("amount", "成交额")),
+            "fetched_at": utc_now(),
+            "raw": _jsonable(data),
+        }
+
+    def fetch_kline(
+        self,
+        symbol: str,
+        *,
+        period: str = "daily",
+        limit: int = 120,
+    ) -> list[dict[str, Any]]:
+        TdxClient, to_jsonable = _load_eltdx()
+        normalized_symbol = normalize_symbol(symbol)
+        tdx_code = _tdx_code(normalized_symbol)
+        with TdxClient(timeout=5) as client:
+            series = client.get_kline(_tdx_period(period), tdx_code, count=limit)
+        data = to_jsonable(series) if to_jsonable else _jsonable_object(series)
+        raw_bars = data.get("bars") if isinstance(data, dict) else data
+        if not raw_bars:
+            raise MarketDataError(f"eltdx kline not found for {normalized_symbol}")
+
+        bars: list[dict[str, Any]] = []
+        for row in raw_bars[-limit:]:
+            item = _jsonable_object(row)
+            bars.append(
+                {
+                    "symbol": normalized_symbol,
+                    "source": self.name,
+                    "period": "daily",
+                    "trade_date": str(
+                        _first_value(item, ("trade_date", "date", "time", "日期", "时间"))
+                    )[:10],
+                    "open": _first_required_float(item, ("open", "开盘"), "open"),
+                    "high": _first_required_float(item, ("high", "最高"), "high"),
+                    "low": _first_required_float(item, ("low", "最低"), "low"),
+                    "close": _first_required_float(item, ("close", "收盘"), "close"),
+                    "volume": _first_float(item, ("volume", "volume_lots", "成交量")),
+                    "amount": _first_float(item, ("amount", "成交额")),
+                    "payload": _jsonable(item),
+                }
+            )
+        return bars
+
+
 class EastmoneyMarketDataProvider:
     name = "eastmoney"
 
@@ -281,9 +358,11 @@ class EastmoneyMarketDataProvider:
 
 
 def get_market_data_provider(source: str | None) -> MarketDataProvider:
-    source_name = (source or "mock").strip().lower()
+    source_name = (source or "tongdaxin").strip().lower()
     if source_name == "mock":
         return MockMarketDataProvider()
+    if source_name in {"tdx", "tongdaxin", "eltdx"}:
+        return EltdxMarketDataProvider()
     if source_name in {"eastmoney", "real"}:
         return EastmoneyMarketDataProvider()
     if source_name == "akshare":
@@ -318,6 +397,41 @@ def _load_akshare() -> Any:
             "AkShare is not installed. Install it with 'pip install akshare' or use source=mock."
         ) from exc
     return akshare
+
+
+def _load_eltdx() -> tuple[Any, Any | None]:
+    try:
+        from eltdx import TdxClient  # type: ignore
+    except ModuleNotFoundError as exc:
+        raise MarketDataError(
+            "eltdx is not installed. Install it with 'pip install \"eltdx[mcp]\"' "
+            "and optionally run 'eltdx-mcp' for MCP tooling, or switch source=eastmoney."
+        ) from exc
+    try:
+        from eltdx import to_jsonable  # type: ignore
+    except (ImportError, ModuleNotFoundError):
+        to_jsonable = None
+    return TdxClient, to_jsonable
+
+
+def _tdx_code(symbol: str) -> str:
+    normalized_symbol = normalize_symbol(symbol)
+    if normalized_symbol.startswith(("4", "8", "9")):
+        return f"bj{normalized_symbol}"
+    if normalized_symbol.startswith(("5", "6")):
+        return f"sh{normalized_symbol}"
+    return f"sz{normalized_symbol}"
+
+
+def _tdx_period(period: str) -> str:
+    period_name = (period or "daily").lower()
+    if period_name in {"daily", "day", "d"}:
+        return "day"
+    if period_name in {"weekly", "week", "w"}:
+        return "week"
+    if period_name in {"monthly", "month", "m"}:
+        return "month"
+    return period_name
 
 
 def _eastmoney_secid(symbol: str) -> str:
@@ -390,6 +504,45 @@ def _required_float(value: Any, field_name: str) -> float:
     if parsed is None:
         raise MarketDataError(f"AkShare returned empty numeric field: {field_name}")
     return parsed
+
+
+def _jsonable_object(value: Any) -> Any:
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if hasattr(value, "dict"):
+        return value.dict()
+    if hasattr(value, "__dict__"):
+        return dict(value.__dict__)
+    return value
+
+
+def _first_value(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in data and data[key] not in {None, ""}:
+            return data[key]
+    return None
+
+
+def _first_float(data: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    return _safe_float(_first_value(data, keys))
+
+
+def _first_required_float(
+    data: dict[str, Any],
+    keys: tuple[str, ...],
+    field_name: str,
+) -> float:
+    parsed = _first_float(data, keys)
+    if parsed is None:
+        raise MarketDataError(f"eltdx returned empty numeric field: {field_name}")
+    return parsed
+
+
+def _first_text(data: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    value = _first_value(data, keys)
+    return None if value is None else str(value)
 
 
 def _jsonable(row: dict[str, Any]) -> dict[str, Any]:

@@ -20,7 +20,14 @@ HOLDING_FIELDS = {
     "notes",
 }
 
+STOCK_POOL_FIELDS = {
+    "name",
+    "description",
+    "is_default",
+}
+
 WATCHLIST_FIELDS = {
+    "pool_id",
     "symbol",
     "name",
     "market",
@@ -145,11 +152,140 @@ def delete_holding(connection: sqlite3.Connection, holding_id: int) -> bool:
     return cursor.rowcount > 0
 
 
-def list_watchlist(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+def list_stock_pools(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        "SELECT * FROM stock_pools ORDER BY is_default DESC, updated_at DESC, id DESC"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_stock_pool(
+    connection: sqlite3.Connection, pool_id: int
+) -> dict[str, Any] | None:
+    row = connection.execute(
+        "SELECT * FROM stock_pools WHERE id = ?", (pool_id,)
+    ).fetchone()
+    return row_to_dict(row)
+
+
+def get_default_stock_pool(connection: sqlite3.Connection) -> dict[str, Any]:
+    row = connection.execute(
+        "SELECT * FROM stock_pools WHERE is_default = 1 ORDER BY id LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return create_stock_pool(
+            connection,
+            {
+                "name": "默认股票池",
+                "description": "系统默认个人股票池",
+                "is_default": True,
+            },
+        )
+    return dict(row)
+
+
+def create_stock_pool(
+    connection: sqlite3.Connection, payload: dict[str, Any]
+) -> dict[str, Any]:
+    now = utc_now()
+    data = {
+        key: value
+        for key, value in payload.items()
+        if key in STOCK_POOL_FIELDS and value is not None
+    }
+    data.setdefault("name", "默认股票池")
+    data["is_default"] = 1 if data.get("is_default") else 0
+    data["created_at"] = now
+    data["updated_at"] = now
+    if data["is_default"]:
+        connection.execute("UPDATE stock_pools SET is_default = 0")
+
+    columns = ", ".join(data.keys())
+    placeholders = ", ".join("?" for _ in data)
+    cursor = connection.execute(
+        f"INSERT INTO stock_pools ({columns}) VALUES ({placeholders})",
+        tuple(data.values()),
+    )
+    connection.commit()
+    created = get_stock_pool(connection, int(cursor.lastrowid))
+    assert created is not None
+    return created
+
+
+def update_stock_pool(
+    connection: sqlite3.Connection, pool_id: int, payload: dict[str, Any]
+) -> dict[str, Any] | None:
+    if get_stock_pool(connection, pool_id) is None:
+        return None
+    data = {
+        key: value
+        for key, value in payload.items()
+        if key in STOCK_POOL_FIELDS and value is not None
+    }
+    if not data:
+        return get_stock_pool(connection, pool_id)
+    if "is_default" in data:
+        data["is_default"] = 1 if data["is_default"] else 0
+        if data["is_default"]:
+            connection.execute("UPDATE stock_pools SET is_default = 0")
+    data["updated_at"] = utc_now()
+    assignments = ", ".join(f"{key} = ?" for key in data)
+    connection.execute(
+        f"UPDATE stock_pools SET {assignments} WHERE id = ?",
+        tuple(data.values()) + (pool_id,),
+    )
+    connection.commit()
+    return get_stock_pool(connection, pool_id)
+
+
+def delete_stock_pool(connection: sqlite3.Connection, pool_id: int) -> bool:
+    pool = get_stock_pool(connection, pool_id)
+    if pool is None or pool["is_default"]:
+        return False
+    default_pool_id = int(get_default_stock_pool(connection)["id"])
+    connection.execute(
+        "UPDATE watchlist SET pool_id = ? WHERE pool_id = ?",
+        (default_pool_id, pool_id),
+    )
+    cursor = connection.execute("DELETE FROM stock_pools WHERE id = ?", (pool_id,))
+    connection.commit()
+    return cursor.rowcount > 0
+
+
+def list_watchlist(
+    connection: sqlite3.Connection, *, pool_id: int | None = None
+) -> list[dict[str, Any]]:
+    if pool_id is not None:
+        rows = connection.execute(
+            """
+            SELECT * FROM watchlist
+            WHERE pool_id = ?
+            ORDER BY priority ASC, updated_at DESC, id DESC
+            """,
+            (pool_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
     rows = connection.execute(
         "SELECT * FROM watchlist ORDER BY priority ASC, updated_at DESC, id DESC"
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def pool_symbols(connection: sqlite3.Connection, pool_id: int | None) -> set[str]:
+    if pool_id is None:
+        return set()
+    return {
+        normalize_symbol(row["symbol"])
+        for row in list_watchlist(connection, pool_id=pool_id)
+    }
+
+
+def filter_rows_by_symbols(
+    rows: list[dict[str, Any]], symbols: set[str]
+) -> list[dict[str, Any]]:
+    if not symbols:
+        return rows
+    return [row for row in rows if normalize_symbol(row["symbol"]) in symbols]
 
 
 def get_watchlist_item(
@@ -171,6 +307,8 @@ def create_watchlist_item(
         if key in WATCHLIST_FIELDS and value is not None
     }
     data["symbol"] = normalize_symbol(data["symbol"])
+    if data.get("pool_id") is None:
+        data["pool_id"] = get_default_stock_pool(connection)["id"]
     data["created_at"] = now
     data["updated_at"] = now
 

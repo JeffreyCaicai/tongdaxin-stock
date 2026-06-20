@@ -10,8 +10,9 @@
 - 已选择 `Tauri + React` 作为桌面端方向，MVP 先以本地 FastAPI 服务打通数据和规则闭环。
 - 已建立 SQLite schema、持仓 CRUD、目标池 CRUD 和基础信号评估入口。
 - 已支持持仓/目标池 CSV 导入导出、信号历史查询和工作台批量行动信号生成。
-- 数据源已具备 provider 抽象，默认使用零依赖 `source=eastmoney` 拉真实 A 股 quote，并缓存到 SQLite；`source=mock` 仅用于离线演示和测试。
-- 可选 AkShare provider 已接入；安装 `akshare` 后可用 `source=akshare` 拉真实 A 股 quote/K 线。
+- 数据源已具备 provider 抽象，主路线是通达信协议/MCP：`source=tongdaxin` 走可选 `eltdx` provider。安装 `eltdx[mcp]` 后可用通达信行情/K 线能力，并可启动 `eltdx-mcp` 接入 MCP 工具服务。
+- `source=eastmoney` 保留为零依赖兜底和交叉验证源；`source=mock` 仅用于离线演示和测试。
+- 工作台新增个人股票池：先选择股票池，再围绕该池内股票展示持仓、信号、复盘和池级分析。
 
 ## 目录结构
 
@@ -90,28 +91,35 @@ curl -X POST http://127.0.0.1:8765/workbench/actions \
   -d '{"prices":{"600519":1500,"000001":12.2},"persist":true}'
 ```
 
-从真实行情源自动拉 quote 并生成行动信号：
+安装通达信协议 provider：
+
+```bash
+pip install "eltdx[mcp]"
+eltdx-mcp
+```
+
+从通达信源自动拉 quote 并生成当前股票池行动信号：
 
 ```bash
 curl -X POST http://127.0.0.1:8765/workbench/actions/from-market \
   -H "Content-Type: application/json" \
-  -d '{"source":"eastmoney","persist":true}'
+  -d '{"source":"tongdaxin","persist":true,"pool_id":1}'
 ```
 
 拉取单股 quote / K 线：
 
 ```bash
-curl "http://127.0.0.1:8765/market/quote/600519?source=eastmoney"
-curl "http://127.0.0.1:8765/market/kline/600519?source=eastmoney&period=daily&limit=30"
+curl "http://127.0.0.1:8765/market/quote/600519?source=tongdaxin"
+curl "http://127.0.0.1:8765/market/kline/600519?source=tongdaxin&period=daily&limit=30"
 ```
 
 生成报告和回测：
 
 ```bash
-curl "http://127.0.0.1:8765/reports/stock/600519?source=eastmoney"
+curl "http://127.0.0.1:8765/reports/stock/600519?source=tongdaxin"
 curl -X POST http://127.0.0.1:8765/backtests/600519 \
   -H "Content-Type: application/json" \
-  -d '{"source":"eastmoney","limit":240,"persist":true}'
+  -d '{"source":"tongdaxin","limit":240,"persist":true}'
 ```
 
 ## 测试

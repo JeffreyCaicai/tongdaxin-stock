@@ -67,6 +67,13 @@ def index_html() -> str:
     }
     .header-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .pool-bar {
+      display: grid;
+      grid-template-columns: minmax(180px, 260px) minmax(180px, 1fr) auto auto;
+      gap: 8px;
+      align-items: end;
+      margin-bottom: 14px;
+    }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 14px; }
     .panel {
       border: 1px solid #d9ded4;
@@ -92,6 +99,7 @@ def index_html() -> str:
       header { align-items: flex-start; flex-direction: column; }
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid #d9ded4; }
+      .pool-bar { grid-template-columns: 1fr; }
       .grid { grid-template-columns: 1fr; }
     }
   </style>
@@ -107,7 +115,8 @@ def index_html() -> str:
       </select>
       <label for="marketSourceSelect" data-i18n="marketSource" style="margin:0">行情源</label>
       <select id="marketSourceSelect" onchange="setMarketSource(this.value)">
-        <option value="eastmoney" data-i18n="eastmoneySource">Eastmoney 真实行情</option>
+        <option value="tongdaxin" data-i18n="tongdaxinSource">通达信 eltdx</option>
+        <option value="eastmoney" data-i18n="eastmoneySource">Eastmoney 兜底</option>
         <option value="akshare" data-i18n="akshareSource">AkShare 真实行情</option>
         <option value="mock" data-i18n="mockSource">Mock 演示行情</option>
       </select>
@@ -133,18 +142,35 @@ def index_html() -> str:
       <textarea id="initial_thesis">Manual plan with mock data.</textarea>
       <div class="toolbar" style="margin-top:14px">
         <button onclick="addHolding()" data-i18n="add">添加</button>
+        <button class="secondary" onclick="addSymbolToPool()" data-i18n="addToPool">加入股票池</button>
         <button class="secondary" onclick="hydrateSymbolFromMarket(true)" data-i18n="fetchQuote">查询行情</button>
         <button class="secondary" onclick="refreshAll()" data-i18n="refresh">刷新</button>
       </div>
       <p class="status" id="quoteStatus"></p>
     </aside>
     <section>
+      <div class="pool-bar">
+        <div>
+          <label for="poolSelect" data-i18n="selectedPool">当前股票池</label>
+          <select id="poolSelect" onchange="setSelectedPool(this.value)"></select>
+        </div>
+        <div>
+          <label for="newPoolName" data-i18n="newPoolName">新股票池</label>
+          <input id="newPoolName" data-i18n-placeholder="poolNamePlaceholder" placeholder="例如：短线观察">
+        </div>
+        <button class="secondary" onclick="createPool()" data-i18n="createPool">创建股票池</button>
+        <button onclick="generateSignals()" data-i18n="generatePoolSignals">分析当前池</button>
+      </div>
       <div class="toolbar">
-        <button onclick="generateSignals()" data-i18n="generateSignals">生成今日信号</button>
         <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">每日复盘</button>
         <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">运行回测</button>
       </div>
       <div class="grid">
+        <div class="panel">
+          <h2 data-i18n="poolMembers">股票池</h2>
+          <p class="status" id="poolHint"></p>
+          <div id="watchlist"></div>
+        </div>
         <div class="panel">
           <div class="panel-head">
             <h2 data-i18n="holdings">持仓</h2>
@@ -200,20 +226,28 @@ def index_html() -> str:
         takeProfit: "止盈价",
         thesis: "买入理由",
         add: "添加",
+        addToPool: "加入股票池",
         refresh: "刷新",
         fetchQuote: "查询行情",
         marketSource: "行情源",
-        eastmoneySource: "Eastmoney 真实行情",
+        tongdaxinSource: "通达信 eltdx",
+        eastmoneySource: "Eastmoney 兜底",
         akshareSource: "AkShare 真实行情",
         mockSource: "Mock 演示行情",
         quoteLoaded: "已读取行情",
         quoteFailed: "行情读取失败",
         mockSourceHint: "当前使用演示行情，名称和价格不代表真实市场。",
-        realSourceHint: "当前使用真实行情源。",
-        generateSignals: "生成今日信号",
+        realSourceHint: "当前使用通达信/真实行情源。",
+        generatePoolSignals: "分析当前池",
         dailyReview: "每日复盘",
         runBacktest: "运行回测",
         holdings: "持仓",
+        selectedPool: "当前股票池",
+        newPoolName: "新股票池",
+        poolNamePlaceholder: "例如：短线观察",
+        createPool: "创建股票池",
+        poolMembers: "股票池",
+        poolHint: "当前分析范围由所选股票池决定。",
         signals: "信号",
         backtest: "回测",
         noData: "暂无数据。",
@@ -273,20 +307,28 @@ def index_html() -> str:
         takeProfit: "Take Profit",
         thesis: "Thesis",
         add: "Add",
+        addToPool: "Add to Pool",
         refresh: "Refresh",
         fetchQuote: "Fetch Quote",
         marketSource: "Market Source",
-        eastmoneySource: "Eastmoney Real",
+        tongdaxinSource: "Tongdaxin eltdx",
+        eastmoneySource: "Eastmoney Fallback",
         akshareSource: "AkShare Real",
         mockSource: "Mock Demo",
         quoteLoaded: "Quote loaded",
         quoteFailed: "Quote failed",
         mockSourceHint: "Demo quotes are synthetic and do not represent the real market.",
-        realSourceHint: "Using a real market data source.",
-        generateSignals: "Generate Signals",
+        realSourceHint: "Using Tongdaxin or a real market data source.",
+        generatePoolSignals: "Analyze Pool",
         dailyReview: "Daily Review",
         runBacktest: "Run Backtest",
         holdings: "Holdings",
+        selectedPool: "Current Pool",
+        newPoolName: "New Pool",
+        poolNamePlaceholder: "Example: Swing Watch",
+        createPool: "Create Pool",
+        poolMembers: "Stock Pool",
+        poolHint: "The selected stock pool controls the analysis scope.",
         signals: "Signals",
         backtest: "Backtest",
         noData: "No data yet.",
@@ -358,7 +400,7 @@ def index_html() -> str:
     };
     let currentLanguage = localStorage.getItem("tdx_language") || "zh";
     document.getElementById("languageSelect").value = currentLanguage;
-    let currentMarketSource = localStorage.getItem("tdx_market_source") || "eastmoney";
+    let currentMarketSource = localStorage.getItem("tdx_market_source") || "tongdaxin";
     document.getElementById("marketSourceSelect").value = currentMarketSource;
 
     async function api(path, options) {
@@ -380,6 +422,9 @@ def index_html() -> str:
       document.querySelectorAll("[data-i18n]").forEach(node => {
         node.textContent = t(node.dataset.i18n);
       });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach(node => {
+        node.placeholder = t(node.dataset.i18nPlaceholder);
+      });
       rerenderCachedPanels();
       renderSourceStatus();
     }
@@ -394,6 +439,8 @@ def index_html() -> str:
     }
     let cachedReview = null;
     let cachedBacktest = null;
+    let cachedPools = [];
+    let cachedWatchlist = [];
     let cachedHoldings = [];
     let cachedSignals = [];
     let autoNameValue = "";
@@ -424,11 +471,44 @@ def index_html() -> str:
         body: JSON.stringify(payload)
       });
       await generateHoldingSignal(saved.id);
+      await ensureSymbolInPool();
       document.getElementById("holdingScope").value = "current";
       document.getElementById("signalScope").value = "current";
       const prefix = existing ? t("updatedHolding") + "。 " + t("duplicateHoldingNote") : t("savedHolding");
       document.getElementById("review").innerHTML = `<p class="summary">${prefix}。${t("autoSignalCreated")}。</p>`;
       await refreshAll();
+    }
+    async function createPool() {
+      const name = document.getElementById("newPoolName").value.trim();
+      if (!name) return;
+      const pool = await api("/stock-pools", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({name})
+      });
+      localStorage.setItem("tdx_pool_id", String(pool.id));
+      document.getElementById("newPoolName").value = "";
+      await refreshAll();
+    }
+    async function addSymbolToPool() {
+      await ensureSymbolInPool();
+      await refreshAll();
+    }
+    async function ensureSymbolInPool() {
+      const quote = await hydrateSymbolFromMarket(false);
+      const symbol = currentSymbol();
+      if (!symbol || cachedWatchlist.some(row => normalizeSymbolText(row.symbol) === symbol)) return;
+      await api("/watchlist", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          pool_id: selectedPoolId(),
+          symbol,
+          name: document.getElementById("name").value || quote?.payload?.name || quote?.name || "",
+          thesis: document.getElementById("initial_thesis").value,
+          priority: 3
+        })
+      });
     }
     async function generateHoldingSignal(holdingId) {
       return api(`/holdings/${holdingId}/signals/from-market`, {
@@ -438,22 +518,44 @@ def index_html() -> str:
       });
     }
     async function refreshAll() {
+      await loadPools();
+      cachedWatchlist = await api(`/watchlist?pool_id=${selectedPoolId() || ""}`);
+      renderWatchlist(cachedWatchlist);
       cachedHoldings = await api("/holdings");
       renderHoldings(cachedHoldings);
       cachedSignals = await api("/signals");
       renderSignals(cachedSignals);
     }
+    async function loadPools() {
+      cachedPools = await api("/stock-pools");
+      const select = document.getElementById("poolSelect");
+      const savedPoolId = localStorage.getItem("tdx_pool_id");
+      select.innerHTML = cachedPools.map(pool => `<option value="${pool.id}">${pool.name}</option>`).join("");
+      const selected = cachedPools.find(pool => String(pool.id) === savedPoolId) || cachedPools[0];
+      if (selected) {
+        select.value = String(selected.id);
+        localStorage.setItem("tdx_pool_id", String(selected.id));
+      }
+    }
+    function setSelectedPool(poolId) {
+      localStorage.setItem("tdx_pool_id", poolId);
+      refreshAll();
+    }
+    function selectedPoolId() {
+      const value = document.getElementById("poolSelect").value;
+      return value ? Number(value) : null;
+    }
     async function generateSignals() {
       const result = await api("/workbench/actions/from-market", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({source: marketSource(), persist: true, include_technical: false})
+        body: JSON.stringify({source: marketSource(), persist: true, include_technical: false, pool_id: selectedPoolId()})
       });
       await refreshAll();
       document.getElementById("review").innerHTML = `<p class="summary">${t("generatedSignals")}: ${result.generated_signals}</p>`;
     }
     async function dailyReview() {
-      cachedReview = await api("/reports/daily-review");
+      cachedReview = await api(`/reports/daily-review?pool_id=${selectedPoolId() || ""}`);
       renderDailyReview(cachedReview);
     }
     async function runBacktest() {
@@ -467,7 +569,7 @@ def index_html() -> str:
     }
     function renderHoldings(rows) {
       const scope = document.getElementById("holdingScope").value;
-      const latestRows = latestBySymbol(rows);
+      const latestRows = latestBySymbol(filterByPoolSymbols(rows));
       const selectedRows = scope === "current" ? filterCurrentSymbol(latestRows) : latestRows;
       document.getElementById("holdingsHint").textContent = scope === "current" ? t("currentHoldingsHint") : t("allHoldingsHint");
       document.getElementById("holdings").innerHTML = table(selectedRows, ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"]);
@@ -475,7 +577,8 @@ def index_html() -> str:
     function renderSignals(rows) {
       const view = document.getElementById("signalView").value;
       const scope = document.getElementById("signalScope").value;
-      const scopedRows = scope === "current" ? filterCurrentSymbol(rows) : rows;
+      const poolRows = filterByPoolSymbols(rows);
+      const scopedRows = scope === "current" ? filterCurrentSymbol(poolRows) : poolRows;
       const selectedRows = view === "latest" ? latestBySymbol(scopedRows) : scopedRows.slice(0, 12);
       const hintKey = scope === "current"
         ? (view === "latest" ? "currentLatestSignalsHint" : "currentHistorySignalsHint")
@@ -490,6 +593,10 @@ def index_html() -> str:
       }));
       document.getElementById("signals").innerHTML = table(mapped, ["symbol", "signal_type", "action", "risk_level", "price", "created_at"]);
     }
+    function renderWatchlist(rows) {
+      document.getElementById("poolHint").textContent = t("poolHint");
+      document.getElementById("watchlist").innerHTML = table(rows, ["symbol", "name", "priority", "status"]);
+    }
     function onSymbolChanged() {
       syncAutoName();
       renderHoldings(cachedHoldings);
@@ -499,7 +606,7 @@ def index_html() -> str:
       nameEditedManually = true;
     }
     function marketSource() {
-      return document.getElementById("marketSourceSelect").value || "eastmoney";
+      return document.getElementById("marketSourceSelect").value || "tongdaxin";
     }
     async function hydrateSymbolFromMarket(forceMessage) {
       const symbol = currentSymbol();
@@ -531,6 +638,14 @@ def index_html() -> str:
       const symbol = currentSymbol();
       if (!symbol) return rows;
       return rows.filter(row => normalizeSymbolText(row.symbol) === symbol);
+    }
+    function poolSymbols() {
+      return new Set(cachedWatchlist.map(row => normalizeSymbolText(row.symbol)));
+    }
+    function filterByPoolSymbols(rows) {
+      const symbols = poolSymbols();
+      if (!symbols.size) return [];
+      return rows.filter(row => symbols.has(normalizeSymbolText(row.symbol)));
     }
     function normalizeSymbolText(value) {
       return String(value || "").trim().toUpperCase();
@@ -621,6 +736,7 @@ def index_html() -> str:
       });
     }
     function rerenderCachedPanels() {
+      renderWatchlist(cachedWatchlist);
       renderHoldings(cachedHoldings);
       renderSignals(cachedSignals);
       if (cachedReview) renderDailyReview(cachedReview);

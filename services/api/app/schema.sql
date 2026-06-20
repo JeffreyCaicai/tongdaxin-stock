@@ -17,8 +17,21 @@ CREATE TABLE IF NOT EXISTS holdings (
 
 CREATE INDEX IF NOT EXISTS idx_holdings_symbol ON holdings(symbol);
 
+CREATE TABLE IF NOT EXISTS stock_pools (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  description TEXT,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_pools_name ON stock_pools(name);
+CREATE INDEX IF NOT EXISTS idx_stock_pools_default ON stock_pools(is_default);
+
 CREATE TABLE IF NOT EXISTS watchlist (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pool_id INTEGER,
   symbol TEXT NOT NULL,
   name TEXT,
   market TEXT DEFAULT 'A',
@@ -31,7 +44,8 @@ CREATE TABLE IF NOT EXISTS watchlist (
   status TEXT DEFAULT 'watching',
   notes TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (pool_id) REFERENCES stock_pools(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_watchlist_symbol ON watchlist(symbol);

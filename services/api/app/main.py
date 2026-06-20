@@ -20,16 +20,20 @@ from .repository import (
     create_analysis_report,
     create_backtest,
     create_holding,
+    create_stock_pool,
     create_market_fetch_log,
     create_market_snapshot,
     create_signal,
     create_watchlist_item,
     delete_holding,
+    delete_stock_pool,
     delete_watchlist_item,
     get_holding,
     get_holding_by_symbol,
+    get_stock_pool,
     get_watchlist_item,
     latest_by_symbol,
+    filter_rows_by_symbols,
     list_holdings,
     list_analysis_reports,
     list_backtests,
@@ -37,9 +41,12 @@ from .repository import (
     list_market_klines,
     list_market_snapshots,
     list_signals,
+    list_stock_pools,
     list_watchlist,
     normalize_symbol,
+    pool_symbols,
     update_holding,
+    update_stock_pool,
     update_watchlist_item,
     upsert_market_klines,
     utc_now,
@@ -63,6 +70,9 @@ from .schemas import (
     SignalEvaluateRequest,
     SignalOut,
     SignalReviewOut,
+    StockPoolCreate,
+    StockPoolOut,
+    StockPoolUpdate,
     WatchlistCreate,
     WatchlistOut,
     WatchlistUpdate,
@@ -590,7 +600,7 @@ def api_run_backtest(
 
 @app.get("/reviews/signals", response_model=SignalReviewOut)
 def api_review_signals(
-    source: str = "eastmoney",
+    source: str = "tongdaxin",
     limit: int = Query(default=100, ge=1, le=500),
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
@@ -608,7 +618,7 @@ def api_review_signals(
 @app.get("/market/quote/{symbol}", response_model=MarketQuoteOut)
 def api_fetch_market_quote(
     symbol: str,
-    source: str = "eastmoney",
+    source: str = "tongdaxin",
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
     return _fetch_quote_and_cache(db, symbol=symbol, source=source)
@@ -617,7 +627,7 @@ def api_fetch_market_quote(
 @app.get("/market/kline/{symbol}", response_model=MarketKlineOut)
 def api_fetch_market_kline(
     symbol: str,
-    source: str = "eastmoney",
+    source: str = "tongdaxin",
     period: str = "daily",
     limit: int = Query(default=120, ge=1, le=1000),
     db: sqlite3.Connection = Depends(get_db),
@@ -630,7 +640,7 @@ def api_fetch_market_kline(
 @app.get("/market/indicators/{symbol}", response_model=IndicatorSnapshotOut)
 def api_get_market_indicators(
     symbol: str,
-    source: str = "eastmoney",
+    source: str = "tongdaxin",
     period: str = "daily",
     limit: int = Query(default=120, ge=35, le=1000),
     refresh: bool = False,
@@ -649,7 +659,7 @@ def api_get_market_indicators(
 @app.get("/reports/stock/{symbol}", response_model=ReportOut)
 def api_generate_stock_report(
     symbol: str,
-    source: str = "eastmoney",
+    source: str = "tongdaxin",
     refresh: bool = True,
     persist: bool = True,
     db: sqlite3.Connection = Depends(get_db),
@@ -680,7 +690,7 @@ def api_generate_stock_report(
 @app.get("/reports/trading-plan/{holding_id}", response_model=ReportOut)
 def api_generate_trading_plan(
     holding_id: int,
-    source: str = "eastmoney",
+    source: str = "tongdaxin",
     persist: bool = True,
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
@@ -712,11 +722,17 @@ def api_generate_trading_plan(
 def api_generate_daily_review(
     persist: bool = True,
     signal_limit: int = Query(default=100, ge=1, le=500),
+    pool_id: int | None = None,
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
-    signals = [_signal_row_to_output(row) for row in list_signals(db, limit=signal_limit)]
+    symbols = pool_symbols(db, pool_id)
+    signals = [
+        signal
+        for signal in [_signal_row_to_output(row) for row in list_signals(db, limit=signal_limit)]
+        if not symbols or normalize_symbol(signal["symbol"]) in symbols
+    ]
     report = generate_daily_review(
-        holdings=latest_by_symbol(list_holdings(db)),
+        holdings=filter_rows_by_symbols(latest_by_symbol(list_holdings(db)), symbols),
         signals=signals,
         fetch_logs=list_market_fetch_logs(db, limit=signal_limit),
     )
@@ -783,7 +799,8 @@ def api_generate_workbench_actions(
     payload: WorkbenchActionRequest,
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
-    holdings = latest_by_symbol(list_holdings(db))
+    symbols = pool_symbols(db, payload.pool_id)
+    holdings = filter_rows_by_symbols(latest_by_symbol(list_holdings(db)), symbols)
     price_map = {
         normalize_symbol(symbol): price for symbol, price in payload.prices.items()
     }
@@ -813,7 +830,8 @@ def api_generate_workbench_actions_from_market(
     payload: WorkbenchMarketActionRequest,
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
-    holdings = latest_by_symbol(list_holdings(db))
+    symbols = pool_symbols(db, payload.pool_id)
+    holdings = filter_rows_by_symbols(latest_by_symbol(list_holdings(db)), symbols)
     missing_prices: list[str] = []
     signals: list[dict] = []
 
@@ -853,11 +871,51 @@ def api_generate_workbench_actions_from_market(
     }
 
 
-@app.get("/watchlist", response_model=list[WatchlistOut])
-def api_list_watchlist(
+@app.get("/stock-pools", response_model=list[StockPoolOut])
+def api_list_stock_pools(
     db: sqlite3.Connection = Depends(get_db),
 ) -> list[dict]:
-    return list_watchlist(db)
+    return list_stock_pools(db)
+
+
+@app.post("/stock-pools", response_model=StockPoolOut, status_code=status.HTTP_201_CREATED)
+def api_create_stock_pool(
+    payload: StockPoolCreate,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    return create_stock_pool(db, payload.model_dump())
+
+
+@app.patch("/stock-pools/{pool_id}", response_model=StockPoolOut)
+def api_update_stock_pool(
+    pool_id: int,
+    payload: StockPoolUpdate,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    pool = update_stock_pool(db, pool_id, payload.model_dump(exclude_unset=True))
+    if pool is None:
+        raise HTTPException(status_code=404, detail="Stock pool not found")
+    return pool
+
+
+@app.delete("/stock-pools/{pool_id}", status_code=status.HTTP_204_NO_CONTENT)
+def api_delete_stock_pool(
+    pool_id: int,
+    db: sqlite3.Connection = Depends(get_db),
+) -> Response:
+    if not delete_stock_pool(db, pool_id):
+        raise HTTPException(status_code=404, detail="Stock pool not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/watchlist", response_model=list[WatchlistOut])
+def api_list_watchlist(
+    pool_id: int | None = None,
+    db: sqlite3.Connection = Depends(get_db),
+) -> list[dict]:
+    if pool_id is not None and get_stock_pool(db, pool_id) is None:
+        raise HTTPException(status_code=404, detail="Stock pool not found")
+    return list_watchlist(db, pool_id=pool_id)
 
 
 @app.get("/watchlist/export.csv")
