@@ -32,19 +32,23 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("currentLatestSignalsHint", html)
         self.assertIn("filterCurrentSymbol", html)
 
-    def test_symbol_input_rerenders_and_updates_auto_name(self) -> None:
+    def test_watch_symbol_form_rerenders_and_updates_auto_name(self) -> None:
         html = index_html()
 
+        self.assertIn("添加关注股", html)
         self.assertIn('id="symbol" value="600519" oninput="onSymbolChanged()"', html)
         self.assertIn('id="name" value="" oninput="onNameChanged()"', html)
-        self.assertIn('id="cost_price" type="number" value="" oninput="onPlanChanged()"', html)
-        self.assertIn('id="stop_loss" type="number" value="" oninput="onPlanChanged()"', html)
-        self.assertIn('id="take_profit" type="number" value="" oninput="onPlanChanged()"', html)
-        self.assertIn("thesisPlaceholder", html)
+        self.assertIn('onclick="addSymbolToPool()" data-i18n="addWatchSymbolButton"', html)
+        self.assertNotIn('id="quantity"', html)
+        self.assertNotIn('id="cost_price"', html)
+        self.assertNotIn('id="stop_loss"', html)
+        self.assertNotIn('id="take_profit"', html)
+        self.assertNotIn('id="initial_thesis"', html)
+        self.assertNotIn("function addHolding()", html)
+        self.assertNotIn("draftPlanFromQuote", html)
         self.assertNotIn("Manual plan with mock data.", html)
         self.assertIn("function onSymbolChanged()", html)
         self.assertIn("syncAutoName", html)
-        self.assertIn("draftPlanFromQuote", html)
         self.assertIn("hydrateSymbolFromMarket", html)
 
     def test_pool_analysis_button_uses_mcp_endpoint(self) -> None:
