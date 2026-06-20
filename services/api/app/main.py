@@ -998,10 +998,14 @@ def api_analyze_stock_pool_with_market_source(
     if pool is None:
         raise HTTPException(status_code=404, detail="Stock pool not found")
 
-    symbols = pool_symbols(db, pool_id)[: payload.max_symbols]
+    watchlist = list_watchlist(db, pool_id=pool_id)
+    symbols = [
+        normalize_symbol(str(item["symbol"]))
+        for item in watchlist
+    ][: payload.max_symbols]
+    symbol_set = set(symbols)
     quotes: dict[str, dict] = {}
     failed_symbols: list[str] = []
-    watchlist = list_watchlist(db, pool_id=pool_id)
     watchlist_by_symbol = {
         normalize_symbol(str(item["symbol"])): item for item in watchlist
     }
@@ -1026,7 +1030,7 @@ def api_analyze_stock_pool_with_market_source(
     report = generate_stock_pool_market_analysis(
         pool=pool,
         holdings=filter_rows_by_symbols(
-            latest_by_symbol(list_holdings(db)), symbols
+            latest_by_symbol(list_holdings(db)), symbol_set
         ),
         watchlist=refreshed_watchlist,
         quotes=quotes,
