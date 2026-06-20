@@ -4,7 +4,7 @@ import json
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -15,6 +15,11 @@ from services.api.app.config import get_api_host, get_api_port
 from services.api.app.database import connect, init_db
 from services.api.app.indicators import calculate_indicator_snapshot
 from services.api.app.market_data import MarketDataError, get_market_data_provider
+from services.api.app.mcp_tools import (
+    McpToolError,
+    call_eltdx_mcp_tool,
+    list_eltdx_mcp_tools,
+)
 from services.api.app.repository import (
     create_backtest,
     create_holding,
@@ -103,6 +108,8 @@ class FallbackHandler(BaseHTTPRequestHandler):
             elif path == "/market/fetch-logs":
                 with connect() as db:
                     self._send_json(list_market_fetch_logs(db))
+            elif path in ("/mcp/eltdx/tools", "/mcp/tongdaxin/tools"):
+                self._send_json(_list_tongdaxin_mcp_tools())
             elif path == "/reports/daily-review":
                 limit = int(_query_value(query, "signal_limit", "100"))
                 pool_id = _query_int(query, "pool_id")
@@ -137,6 +144,8 @@ class FallbackHandler(BaseHTTPRequestHandler):
                     self._send_json(_fetch_kline(db, symbol=symbol, source=source, limit=limit))
             else:
                 self._send_json({"detail": "Not found"}, status=404)
+        except McpToolError as exc:
+            self._send_json({"detail": str(exc)}, status=502)
         except (ValueError, MarketDataError) as exc:
             self._send_json({"detail": str(exc)}, status=400)
 
@@ -166,12 +175,17 @@ class FallbackHandler(BaseHTTPRequestHandler):
             elif path == "/workbench/actions/from-market":
                 with connect() as db:
                     self._send_json(_workbench_actions_from_market(db, payload))
+            elif path.startswith(("/mcp/eltdx/tools/", "/mcp/tongdaxin/tools/")):
+                tool_name = unquote(path.rsplit("/", 1)[-1])
+                self._send_json(_call_tongdaxin_mcp_tool(tool_name, payload))
             elif path.startswith("/backtests/"):
                 symbol = path.rsplit("/", 1)[-1]
                 with connect() as db:
                     self._send_json(_run_backtest(db, symbol=symbol, payload=payload))
             else:
                 self._send_json({"detail": "Not found"}, status=404)
+        except McpToolError as exc:
+            self._send_json({"detail": str(exc)}, status=502)
         except (KeyError, ValueError, MarketDataError) as exc:
             self._send_json({"detail": str(exc)}, status=400)
 
@@ -275,6 +289,24 @@ def _fetch_kline(db, *, symbol: str, source: str, limit: int) -> dict:
         "period": "daily",
         "count": len(cached_bars),
         "bars": list(reversed(cached_bars)),
+    }
+
+
+def _list_tongdaxin_mcp_tools() -> dict:
+    return {
+        "server": "eltdx-mcp",
+        "tools": list_eltdx_mcp_tools(),
+    }
+
+
+def _call_tongdaxin_mcp_tool(tool_name: str, payload: dict) -> dict:
+    arguments = payload.get("arguments", {})
+    if not isinstance(arguments, dict):
+        raise ValueError("MCP tool arguments must be an object.")
+    return {
+        "server": "eltdx-mcp",
+        "tool_name": tool_name,
+        "result": call_eltdx_mcp_tool(tool_name, arguments),
     }
 
 

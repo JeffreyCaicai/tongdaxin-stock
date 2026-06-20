@@ -205,6 +205,21 @@ class WorkbenchMarketActionRequest(BaseModel):
     pool_id: int | None = None
 
 
+class McpToolCallRequest(BaseModel):
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class McpToolListOut(BaseModel):
+    server: str
+    tools: list[dict[str, Any]]
+
+
+class McpToolCallOut(BaseModel):
+    server: str
+    tool_name: str
+    result: dict[str, Any]
+
+
 class IndicatorSnapshotOut(BaseModel):
     symbol: str
     source: str

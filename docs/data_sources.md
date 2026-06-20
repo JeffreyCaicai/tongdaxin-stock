@@ -33,6 +33,7 @@ The primary route is Tongdaxin protocol/MCP:
 - Install with `pip install "eltdx[mcp]"`.
 - Run `eltdx-mcp` when an MCP stdio server is needed for Agent tools.
 - In-process API calls use `eltdx.TdxClient` so the local workbench can still normalize quote/K-line data into project-owned schemas.
+- MCP tool calls go through `GET /mcp/tongdaxin/tools` and `POST /mcp/tongdaxin/tools/{tool_name}`. This is the route for richer Tongdaxin tool capabilities such as F10, topics, code lookup, and future Skill-style workflows.
 
 The API also includes a zero-dependency `eastmoney` provider for fallback quote checks and cross-validation, plus a `mock` provider for deterministic offline tests.
 
@@ -43,6 +44,8 @@ Implemented endpoints:
 - `GET /market/snapshots` lists cached quote snapshots.
 - `GET /market/klines/{symbol}` lists cached K-line bars.
 - `GET /market/fetch-logs` lists success/error records for provider calls.
+- `GET /mcp/tongdaxin/tools` lists the tools exposed by `eltdx-mcp`.
+- `POST /mcp/tongdaxin/tools/{tool_name}` calls one MCP tool with an `arguments` object.
 - `POST /workbench/actions/from-market` fetches quotes for all holdings and generates action signals from cached snapshot IDs.
 
 Additional providers:

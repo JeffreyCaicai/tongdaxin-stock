@@ -16,6 +16,7 @@ from .csv_io import (
 from .database import get_db, init_db
 from .indicators import calculate_indicator_snapshot
 from .market_data import MarketDataError, get_market_data_provider
+from .mcp_tools import McpToolError, call_eltdx_mcp_tool, list_eltdx_mcp_tools
 from .repository import (
     create_analysis_report,
     create_backtest,
@@ -66,6 +67,9 @@ from .schemas import (
     MarketFetchLogOut,
     MarketKlineOut,
     MarketQuoteOut,
+    McpToolCallOut,
+    McpToolCallRequest,
+    McpToolListOut,
     ReportOut,
     SignalEvaluateRequest,
     SignalOut,
@@ -792,6 +796,47 @@ def api_list_market_fetch_logs(
         data_type=data_type,
         limit=limit,
     )
+
+
+def _list_tongdaxin_mcp_tools() -> dict:
+    try:
+        return {
+            "server": "eltdx-mcp",
+            "tools": list_eltdx_mcp_tools(),
+        }
+    except McpToolError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+def _call_tongdaxin_mcp_tool(tool_name: str, payload: McpToolCallRequest) -> dict:
+    try:
+        return {
+            "server": "eltdx-mcp",
+            "tool_name": tool_name,
+            "result": call_eltdx_mcp_tool(tool_name, payload.arguments),
+        }
+    except McpToolError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/mcp/eltdx/tools", response_model=McpToolListOut)
+def api_list_eltdx_tools() -> dict:
+    return _list_tongdaxin_mcp_tools()
+
+
+@app.get("/mcp/tongdaxin/tools", response_model=McpToolListOut)
+def api_list_tongdaxin_tools() -> dict:
+    return _list_tongdaxin_mcp_tools()
+
+
+@app.post("/mcp/eltdx/tools/{tool_name}", response_model=McpToolCallOut)
+def api_call_eltdx_tool(tool_name: str, payload: McpToolCallRequest) -> dict:
+    return _call_tongdaxin_mcp_tool(tool_name, payload)
+
+
+@app.post("/mcp/tongdaxin/tools/{tool_name}", response_model=McpToolCallOut)
+def api_call_tongdaxin_tool(tool_name: str, payload: McpToolCallRequest) -> dict:
+    return _call_tongdaxin_mcp_tool(tool_name, payload)
 
 
 @app.post("/workbench/actions", response_model=WorkbenchActionOut)

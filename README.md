@@ -80,6 +80,10 @@ curl http://127.0.0.1:8765/health
 - `GET /market/snapshots`
 - `GET /market/klines/{symbol}`
 - `GET /market/fetch-logs`
+- `GET /mcp/eltdx/tools`
+- `GET /mcp/tongdaxin/tools`
+- `POST /mcp/eltdx/tools/{tool_name}`
+- `POST /mcp/tongdaxin/tools/{tool_name}`
 - `POST /workbench/actions`
 - `POST /workbench/actions/from-market`
 
@@ -96,6 +100,22 @@ curl -X POST http://127.0.0.1:8765/workbench/actions \
 ```bash
 pip install "eltdx[mcp]"
 eltdx-mcp
+```
+
+本地 API 可以直接启动 `eltdx-mcp` stdio 进程并调用工具。默认命令是 `eltdx-mcp`，如需指定 venv 或 uvx 命令可设置：
+
+```bash
+export TDX_ELTDX_MCP_COMMAND='eltdx-mcp'
+export TDX_MCP_TIMEOUT_SECONDS=15
+```
+
+列出通达信 MCP 工具并调用某个工具：
+
+```bash
+curl http://127.0.0.1:8765/mcp/tongdaxin/tools
+curl -X POST http://127.0.0.1:8765/mcp/tongdaxin/tools/tdx_quotes \
+  -H "Content-Type: application/json" \
+  -d '{"arguments":{"symbol":"600519"}}'
 ```
 
 从通达信源自动拉 quote 并生成当前股票池行动信号：
