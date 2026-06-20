@@ -15,6 +15,7 @@ from services.api.app.repository import (
     create_watchlist_item,
     delete_holding,
     get_holding,
+    latest_by_symbol,
     list_holdings,
     list_analysis_reports,
     list_backtests,
@@ -69,6 +70,17 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(saved["notes"], "Raised position after plan review.")
         self.assertTrue(delete_holding(self.connection, holding["id"]))
         self.assertEqual(list_holdings(self.connection), [])
+
+    def test_latest_by_symbol_keeps_newest_ordered_record(self) -> None:
+        rows = [
+            {"id": 3, "symbol": "000001"},
+            {"id": 2, "symbol": "600519"},
+            {"id": 1, "symbol": "600519"},
+        ]
+
+        latest = latest_by_symbol(rows)
+
+        self.assertEqual([row["id"] for row in latest], [3, 2])
 
     def test_create_watchlist_item(self) -> None:
         item = create_watchlist_item(

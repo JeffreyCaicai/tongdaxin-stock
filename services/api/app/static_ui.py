@@ -85,6 +85,7 @@ def index_html() -> str:
     .metric b { display: block; font-size: 12px; color: #5a6255; margin-bottom: 3px; }
     .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
     .panel-head h2 { margin: 0; }
+    .panel-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .inline-select { max-width: 150px; padding: 6px 8px; font-size: 13px; }
     ul { margin: 8px 0 0; padding-left: 18px; }
     @media (max-width: 840px) {
@@ -111,9 +112,9 @@ def index_html() -> str:
     <aside>
       <h2 data-i18n="addHolding">新增持仓</h2>
       <label data-i18n="symbol">股票代码</label>
-      <input id="symbol" value="600519">
+      <input id="symbol" value="600519" oninput="onSymbolChanged()">
       <label data-i18n="name">名称</label>
-      <input id="name" value="Mock Moutai">
+      <input id="name" value="Mock 600519" oninput="onNameChanged()">
       <label data-i18n="quantity">数量</label>
       <input id="quantity" type="number" value="100">
       <label data-i18n="costPrice">成本价</label>
@@ -137,17 +138,29 @@ def index_html() -> str:
       </div>
       <div class="grid">
         <div class="panel">
-          <h2 data-i18n="holdings">持仓</h2>
+          <div class="panel-head">
+            <h2 data-i18n="holdings">持仓</h2>
+            <select class="inline-select" id="holdingScope" onchange="renderHoldings(cachedHoldings)">
+              <option value="current" data-i18n="currentSymbol">当前股票</option>
+              <option value="all" data-i18n="allSymbols">全部股票</option>
+            </select>
+          </div>
           <p class="status" id="holdingsHint"></p>
           <div id="holdings"></div>
         </div>
         <div class="panel">
           <div class="panel-head">
             <h2 data-i18n="signals">信号</h2>
-            <select class="inline-select" id="signalView" onchange="renderSignals(cachedSignals)">
-              <option value="latest" data-i18n="latestSignals">最新</option>
-              <option value="history" data-i18n="historySignals">历史</option>
-            </select>
+            <div class="panel-controls">
+              <select class="inline-select" id="signalScope" onchange="renderSignals(cachedSignals)">
+                <option value="current" data-i18n="currentSymbol">当前股票</option>
+                <option value="all" data-i18n="allSymbols">全部股票</option>
+              </select>
+              <select class="inline-select" id="signalView" onchange="renderSignals(cachedSignals)">
+                <option value="latest" data-i18n="latestSignals">最新</option>
+                <option value="history" data-i18n="historySignals">历史</option>
+              </select>
+            </div>
           </div>
           <p class="status" id="signalHint"></p>
           <div id="signals"></div>
@@ -192,11 +205,16 @@ def index_html() -> str:
         updatedHolding: "已更新已有持仓",
         duplicateHoldingNote: "检测到相同股票代码，已更新原持仓，避免重复记录。",
         autoSignalCreated: "已为该股票自动生成最新信号",
-        holdingsHint: "默认显示每只股票最新一条持仓。",
+        currentSymbol: "当前股票",
+        allSymbols: "全部股票",
+        currentHoldingsHint: "当前只显示输入框中股票的最新持仓。切换到全部股票可查看股票池。",
+        allHoldingsHint: "正在显示股票池中每只股票最新一条持仓。",
         latestSignals: "最新",
         historySignals: "历史",
-        latestSignalsHint: "默认显示每只股票最新一条信号，避免重复历史记录干扰判断。",
-        historySignalsHint: "正在显示最近保存的历史信号记录。",
+        currentLatestSignalsHint: "当前只显示输入框中股票的最新信号。",
+        currentHistorySignalsHint: "当前只显示输入框中股票的最近历史信号。",
+        allLatestSignalsHint: "正在显示股票池中每只股票最新一条信号。",
+        allHistorySignalsHint: "正在显示最近保存的全股票池历史信号记录。",
         highRiskSymbols: "高风险股票",
         failedFetchCount: "数据拉取失败数",
         fetchOk: "未发现数据拉取失败",
@@ -251,11 +269,16 @@ def index_html() -> str:
         updatedHolding: "Existing holding updated",
         duplicateHoldingNote: "Same symbol detected; updated the existing holding to avoid duplicates.",
         autoSignalCreated: "A fresh signal was generated for this symbol",
-        holdingsHint: "Showing the latest holding per symbol.",
+        currentSymbol: "Current",
+        allSymbols: "All Symbols",
+        currentHoldingsHint: "Showing only the latest holding for the symbol in the input box.",
+        allHoldingsHint: "Showing the latest holding per symbol in the portfolio.",
         latestSignals: "Latest",
         historySignals: "History",
-        latestSignalsHint: "Showing the latest signal per symbol to avoid duplicate history noise.",
-        historySignalsHint: "Showing recently saved historical signal records.",
+        currentLatestSignalsHint: "Showing only the latest signal for the symbol in the input box.",
+        currentHistorySignalsHint: "Showing recent historical signals for the symbol in the input box.",
+        allLatestSignalsHint: "Showing the latest signal per symbol in the portfolio.",
+        allHistorySignalsHint: "Showing recently saved historical signals across the portfolio.",
         highRiskSymbols: "High-risk symbols",
         failedFetchCount: "Failed fetches",
         fetchOk: "No failed data fetches",
@@ -329,7 +352,6 @@ def index_html() -> str:
       document.querySelectorAll("[data-i18n]").forEach(node => {
         node.textContent = t(node.dataset.i18n);
       });
-      refreshAll();
       rerenderCachedPanels();
     }
     function numberValue(id) {
@@ -340,6 +362,8 @@ def index_html() -> str:
     let cachedBacktest = null;
     let cachedHoldings = [];
     let cachedSignals = [];
+    let autoNameValue = "Mock 600519";
+    let nameEditedManually = false;
 
     async function checkHealth() {
       const health = await api("/health");
@@ -364,6 +388,8 @@ def index_html() -> str:
         body: JSON.stringify(payload)
       });
       await generateHoldingSignal(saved.id);
+      document.getElementById("holdingScope").value = "current";
+      document.getElementById("signalScope").value = "current";
       const prefix = existing ? t("updatedHolding") + "。 " + t("duplicateHoldingNote") : t("savedHolding");
       document.getElementById("review").innerHTML = `<p class="summary">${prefix}。${t("autoSignalCreated")}。</p>`;
       await refreshAll();
@@ -404,13 +430,21 @@ def index_html() -> str:
       renderBacktest(cachedBacktest);
     }
     function renderHoldings(rows) {
-      document.getElementById("holdingsHint").textContent = t("holdingsHint");
-      document.getElementById("holdings").innerHTML = table(latestBySymbol(rows), ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"]);
+      const scope = document.getElementById("holdingScope").value;
+      const latestRows = latestBySymbol(rows);
+      const selectedRows = scope === "current" ? filterCurrentSymbol(latestRows) : latestRows;
+      document.getElementById("holdingsHint").textContent = scope === "current" ? t("currentHoldingsHint") : t("allHoldingsHint");
+      document.getElementById("holdings").innerHTML = table(selectedRows, ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"]);
     }
     function renderSignals(rows) {
       const view = document.getElementById("signalView").value;
-      const selectedRows = view === "latest" ? latestBySymbol(rows) : rows.slice(0, 12);
-      document.getElementById("signalHint").textContent = view === "latest" ? t("latestSignalsHint") : t("historySignalsHint");
+      const scope = document.getElementById("signalScope").value;
+      const scopedRows = scope === "current" ? filterCurrentSymbol(rows) : rows;
+      const selectedRows = view === "latest" ? latestBySymbol(scopedRows) : scopedRows.slice(0, 12);
+      const hintKey = scope === "current"
+        ? (view === "latest" ? "currentLatestSignalsHint" : "currentHistorySignalsHint")
+        : (view === "latest" ? "allLatestSignalsHint" : "allHistorySignalsHint");
+      document.getElementById("signalHint").textContent = t(hintKey);
       const mapped = selectedRows.map(row => ({
         ...row,
         signal_type: enumLabel(row.signal_type),
@@ -419,6 +453,33 @@ def index_html() -> str:
         created_at: shortTime(row.created_at)
       }));
       document.getElementById("signals").innerHTML = table(mapped, ["symbol", "signal_type", "action", "risk_level", "price", "created_at"]);
+    }
+    function onSymbolChanged() {
+      syncAutoName();
+      renderHoldings(cachedHoldings);
+      renderSignals(cachedSignals);
+    }
+    function onNameChanged() {
+      nameEditedManually = true;
+    }
+    function currentSymbol() {
+      return normalizeSymbolText(document.getElementById("symbol").value);
+    }
+    function filterCurrentSymbol(rows) {
+      const symbol = currentSymbol();
+      if (!symbol) return rows;
+      return rows.filter(row => normalizeSymbolText(row.symbol) === symbol);
+    }
+    function normalizeSymbolText(value) {
+      return String(value || "").trim().toUpperCase();
+    }
+    function syncAutoName() {
+      const symbol = currentSymbol();
+      const nameInput = document.getElementById("name");
+      if (nameEditedManually && nameInput.value !== autoNameValue) return;
+      autoNameValue = symbol ? `Mock ${symbol}` : "";
+      nameInput.value = autoNameValue;
+      nameEditedManually = false;
     }
     function renderDailyReview(report) {
       const payload = report.payload || report;
@@ -471,8 +532,9 @@ def index_html() -> str:
       const seen = new Set();
       const latest = [];
       for (const row of rows) {
-        if (seen.has(row.symbol)) continue;
-        seen.add(row.symbol);
+        const symbol = normalizeSymbolText(row.symbol);
+        if (seen.has(symbol)) continue;
+        seen.add(symbol);
         latest.push(row);
       }
       return latest;
@@ -489,6 +551,8 @@ def index_html() -> str:
       });
     }
     function rerenderCachedPanels() {
+      renderHoldings(cachedHoldings);
+      renderSignals(cachedSignals);
       if (cachedReview) renderDailyReview(cachedReview);
       if (cachedBacktest) renderBacktest(cachedBacktest);
     }

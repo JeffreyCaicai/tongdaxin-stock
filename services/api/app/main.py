@@ -29,6 +29,7 @@ from .repository import (
     get_holding,
     get_holding_by_symbol,
     get_watchlist_item,
+    latest_by_symbol,
     list_holdings,
     list_analysis_reports,
     list_backtests,
@@ -699,7 +700,7 @@ def api_generate_daily_review(
 ) -> dict:
     signals = [_signal_row_to_output(row) for row in list_signals(db, limit=signal_limit)]
     report = generate_daily_review(
-        holdings=list_holdings(db),
+        holdings=latest_by_symbol(list_holdings(db)),
         signals=signals,
         fetch_logs=list_market_fetch_logs(db, limit=signal_limit),
     )
@@ -766,7 +767,7 @@ def api_generate_workbench_actions(
     payload: WorkbenchActionRequest,
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
-    holdings = list_holdings(db)
+    holdings = latest_by_symbol(list_holdings(db))
     price_map = {
         normalize_symbol(symbol): price for symbol, price in payload.prices.items()
     }
@@ -796,7 +797,7 @@ def api_generate_workbench_actions_from_market(
     payload: WorkbenchMarketActionRequest,
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
-    holdings = list_holdings(db)
+    holdings = latest_by_symbol(list_holdings(db))
     missing_prices: list[str] = []
     signals: list[dict] = []
 

@@ -56,6 +56,18 @@ def list_holdings(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def latest_by_symbol(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    latest: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        symbol = normalize_symbol(str(row["symbol"]))
+        if symbol in seen:
+            continue
+        seen.add(symbol)
+        latest.append(row)
+    return latest
+
+
 def get_holding(connection: sqlite3.Connection, holding_id: int) -> dict[str, Any] | None:
     row = connection.execute(
         "SELECT * FROM holdings WHERE id = ?", (holding_id,)

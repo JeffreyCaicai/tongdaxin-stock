@@ -14,6 +14,24 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("Tongdaxin Stock Workbench", html)
         self.assertIn("setLanguage", html)
 
+    def test_workbench_defaults_to_current_symbol_scope(self) -> None:
+        html = index_html()
+
+        self.assertIn('id="holdingScope"', html)
+        self.assertIn('id="signalScope"', html)
+        self.assertIn('value="current"', html)
+        self.assertIn("currentHoldingsHint", html)
+        self.assertIn("currentLatestSignalsHint", html)
+        self.assertIn("filterCurrentSymbol", html)
+
+    def test_symbol_input_rerenders_and_updates_auto_name(self) -> None:
+        html = index_html()
+
+        self.assertIn('id="symbol" value="600519" oninput="onSymbolChanged()"', html)
+        self.assertIn('id="name" value="Mock 600519" oninput="onNameChanged()"', html)
+        self.assertIn("function onSymbolChanged()", html)
+        self.assertIn("syncAutoName", html)
+
 
 if __name__ == "__main__":
     unittest.main()

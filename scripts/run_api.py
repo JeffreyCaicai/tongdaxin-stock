@@ -24,6 +24,7 @@ from services.api.app.repository import (
     list_holdings,
     list_market_fetch_logs,
     list_signals,
+    latest_by_symbol,
     normalize_symbol,
     get_holding,
     update_holding,
@@ -73,18 +74,33 @@ class FallbackHandler(BaseHTTPRequestHandler):
                 with connect() as db:
                     self._send_json(list_holdings(db))
             elif path == "/signals":
+                symbol = _query_value(query, "symbol", "")
+                limit = int(_query_value(query, "limit", "100"))
                 with connect() as db:
-                    self._send_json([_signal_row_to_output(row) for row in list_signals(db)])
+                    self._send_json(
+                        [
+                            _signal_row_to_output(row)
+                            for row in list_signals(
+                                db,
+                                symbol=symbol or None,
+                                limit=limit,
+                            )
+                        ]
+                    )
             elif path == "/market/fetch-logs":
                 with connect() as db:
                     self._send_json(list_market_fetch_logs(db))
             elif path == "/reports/daily-review":
+                limit = int(_query_value(query, "signal_limit", "100"))
                 with connect() as db:
-                    signals = [_signal_row_to_output(row) for row in list_signals(db)]
+                    signals = [
+                        _signal_row_to_output(row)
+                        for row in list_signals(db, limit=limit)
+                    ]
                     report = generate_daily_review(
-                        holdings=list_holdings(db),
+                        holdings=latest_by_symbol(list_holdings(db)),
                         signals=signals,
-                        fetch_logs=list_market_fetch_logs(db),
+                        fetch_logs=list_market_fetch_logs(db, limit=limit),
                     )
                     self._send_json(report)
             elif path.startswith("/market/quote/"):
@@ -233,7 +249,7 @@ def _workbench_actions_from_market(db, payload: dict) -> dict:
     kline_limit = int(payload.get("kline_limit", 120))
     signals: list[dict] = []
     missing_prices: list[str] = []
-    holdings = list_holdings(db)
+    holdings = latest_by_symbol(list_holdings(db))
 
     for holding in holdings:
         symbol = normalize_symbol(holding["symbol"])
