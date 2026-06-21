@@ -389,6 +389,8 @@ def index_html() -> str:
         momentum_20_pct: "20日动量",
         vs_index_20_pct: "相对指数20日",
         vs_pool_20_pct: "相对股票池20日",
+        excess_market_20_pct: "超额大盘20日",
+        excess_pool_median_20_pct: "超额股票池20日",
         ma20_deviation_pct: "MA20偏离",
         current_price: "现价",
         market_value: "持仓市值",
@@ -534,6 +536,8 @@ def index_html() -> str:
         momentum_20_pct: "20D Momentum",
         vs_index_20_pct: "20D vs Index",
         vs_pool_20_pct: "20D vs Pool",
+        excess_market_20_pct: "20D Excess vs Market",
+        excess_pool_median_20_pct: "20D Excess vs Pool",
         ma20_deviation_pct: "MA20 Deviation",
         current_price: "Current Price",
         market_value: "Market Value",
@@ -1303,6 +1307,7 @@ def index_html() -> str:
         const factor = item.factor_profile || {};
         const momentum = factor.momentum || {};
         const relative = factor.relative_strength || {};
+        const attribution = factor.attribution || {};
         const meanReversion = factor.mean_reversion || {};
         return {
           symbol: item.symbol,
@@ -1318,6 +1323,8 @@ def index_html() -> str:
           momentum_20_pct: formatPercent(momentum.return20_pct),
           vs_index_20_pct: formatPercent(relative.vs_index_20_pct),
           vs_pool_20_pct: formatPercent(relative.vs_pool_20_pct),
+          excess_market_20_pct: formatPercent(attribution.excess_market_20_pct),
+          excess_pool_median_20_pct: formatPercent(attribution.excess_pool_median_20_pct),
           ma20_deviation_pct: formatPercent(meanReversion.ma20_deviation_pct),
           evidence_summary: item.evidence_summary || "",
           next_check: decision.next_check || ""
@@ -1351,6 +1358,8 @@ def index_html() -> str:
           "momentum_20_pct",
           "vs_index_20_pct",
           "vs_pool_20_pct",
+          "excess_market_20_pct",
+          "excess_pool_median_20_pct",
           "ma20_deviation_pct",
           "evidence_summary",
           "next_check"

@@ -58,6 +58,39 @@ def mixed_bars(
     return bars
 
 
+def factor_return_bars(
+    *,
+    latest_price: float = 100.0,
+    return20_pct: float = 0.0,
+    return60_pct: float = 0.0,
+    days: int = 90,
+) -> list[dict]:
+    start = date(2026, 1, 1)
+    price_20 = latest_price / (1 + return20_pct / 100)
+    price_60 = latest_price / (1 + return60_pct / 100)
+    bars: list[dict] = []
+    for index in range(days):
+        if index <= days - 61:
+            close = price_60
+        elif index <= days - 21:
+            progress = (index - (days - 61)) / 40
+            close = price_60 + (price_20 - price_60) * progress
+        else:
+            progress = (index - (days - 21)) / 20
+            close = price_20 + (latest_price - price_20) * progress
+        bars.append(
+            {
+                "trade_date": (start + timedelta(days=index)).isoformat(),
+                "open": close - 0.2,
+                "high": close + 0.6,
+                "low": close - 0.6,
+                "close": close,
+                "volume": 1200 + index * 5,
+            }
+        )
+    return bars
+
+
 class DecisionEngineTests(unittest.TestCase):
     def test_decision_engine_returns_probabilities_and_evidence(self) -> None:
         bars = trend_bars()
@@ -127,6 +160,50 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertTrue(
             any(entry["source"] == "中期动量" and entry["regime_weight"] > 1 for entry in item["evidence"])
         )
+
+    def test_decision_engine_separates_common_factor_rise_from_specific_strength(self) -> None:
+        weak_absolute_bars = factor_return_bars(
+            latest_price=105,
+            return20_pct=5,
+            return60_pct=12,
+        )
+        peer_a_bars = factor_return_bars(latest_price=118, return20_pct=18, return60_pct=24)
+        peer_b_bars = factor_return_bars(latest_price=120, return20_pct=20, return60_pct=26)
+        index_bars = factor_return_bars(latest_price=3400, return20_pct=14, return60_pct=18, days=120)
+
+        report = generate_stock_pool_decision_engine(
+            pool={"id": 1, "name": "默认股票池"},
+            watchlist=[
+                {"id": 1, "symbol": "600519", "name": "贵州茅台", "priority": 1},
+                {"id": 2, "symbol": "688630", "name": "芯碁微装", "priority": 2},
+                {"id": 3, "symbol": "603337", "name": "杰克科技", "priority": 3},
+            ],
+            holdings=[],
+            quotes={
+                "600519": {"symbol": "600519", "name": "贵州茅台", "price": 105, "pct_change": 0.8},
+                "688630": {"symbol": "688630", "name": "芯碁微装", "price": 118, "pct_change": 2.1},
+                "603337": {"symbol": "603337", "name": "杰克科技", "price": 120, "pct_change": 2.4},
+            },
+            kline_by_symbol={
+                "600519": weak_absolute_bars,
+                "688630": peer_a_bars,
+                "603337": peer_b_bars,
+            },
+            source="tdx-official",
+            horizon_days=20,
+            index_bars=index_bars,
+        )
+
+        item = next(row for row in report["items"] if row["symbol"] == "600519")
+        attribution = item["factor_profile"]["attribution"]
+        self.assertAlmostEqual(attribution["stock_return20_pct"], 5.0, places=2)
+        self.assertAlmostEqual(attribution["market_return20_pct"], 14.0, places=2)
+        self.assertAlmostEqual(attribution["pool_median_return20_pct"], 18.0, places=2)
+        self.assertAlmostEqual(attribution["excess_market_20_pct"], -9.0, places=2)
+        self.assertAlmostEqual(attribution["excess_pool_median_20_pct"], -13.0, places=2)
+        evidence = next(entry for entry in item["evidence"] if entry["source"] == "因子归因")
+        self.assertIn("共同因子", evidence["observation"])
+        self.assertGreater(evidence["contribution"]["down"], evidence["contribution"]["up"])
 
     def test_decision_engine_api_uses_watchlist_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -103,6 +103,8 @@ def generate_stock_pool_decision_engine(
             "failed_market_index_symbol": failed_market_index_symbol,
             "unavailable_evidence": [
                 "行业状态",
+                "行业归因",
+                "市值/成长价值风格归因",
                 "基本面变化",
                 "事件催化",
                 "历史相似样本库",
@@ -303,6 +305,7 @@ def _evidence_entries(
     _momentum_factor_evidence(entries, factor_profile)
     _relative_strength_evidence(entries, quote, pool_context)
     _relative_strength_factor_evidence(entries, factor_profile)
+    _factor_attribution_evidence(entries, factor_profile)
     _mean_reversion_factor_evidence(entries, factor_profile)
     _chan_evidence(entries, chan)
     _position_evidence(entries, position)
@@ -478,6 +481,81 @@ def _relative_strength_factor_evidence(entries: list[dict[str, Any]], factor_pro
                 down=0.18,
                 category="risk",
             )
+
+
+def _factor_attribution_evidence(entries: list[dict[str, Any]], factor_profile: dict[str, Any]) -> None:
+    attribution = factor_profile.get("attribution") or {}
+    return20 = _to_float(attribution.get("stock_return20_pct"))
+    excess_market_20 = _to_float(attribution.get("excess_market_20_pct"))
+    excess_pool_average_20 = _to_float(attribution.get("excess_pool_average_20_pct"))
+    excess_pool_median_20 = _to_float(attribution.get("excess_pool_median_20_pct"))
+    if excess_market_20 is None and excess_pool_average_20 is None and excess_pool_median_20 is None:
+        return
+
+    pool_reference = (
+        excess_pool_median_20
+        if excess_pool_median_20 is not None
+        else excess_pool_average_20
+    )
+    pool_label = (
+        f"股票池中位数 {pool_reference:.2f}%"
+        if excess_pool_median_20 is not None
+        else f"股票池均值 {pool_reference:.2f}%"
+        if pool_reference is not None
+        else "股票池暂无可比数据"
+    )
+    market_label = (
+        f"大盘 {excess_market_20:.2f}%"
+        if excess_market_20 is not None
+        else "大盘暂无可比数据"
+    )
+
+    if (
+        return20 is not None
+        and return20 > 0
+        and (excess_market_20 is not None and excess_market_20 <= -4)
+        and (pool_reference is not None and pool_reference <= -3)
+    ):
+        _add_evidence(
+            entries,
+            "因子归因",
+            f"20日上涨 {return20:.2f}%，但相对{market_label}、相对{pool_label}，更像共同因子带动",
+            up=-0.08,
+            range=0.08,
+            down=0.2,
+            category="risk",
+        )
+    elif (
+        excess_market_20 is not None
+        and excess_market_20 >= 5
+        and (pool_reference is None or pool_reference >= 3)
+    ):
+        _add_evidence(
+            entries,
+            "因子归因",
+            f"20日相对{market_label}、相对{pool_label}，个股残差强势较明显",
+            up=0.22,
+            range=0.02,
+            down=-0.08,
+            category="trend",
+        )
+    elif (
+        return20 is not None
+        and return20 > 0
+        and excess_market_20 is not None
+        and abs(excess_market_20) <= 2
+        and pool_reference is not None
+        and abs(pool_reference) <= 2
+    ):
+        _add_evidence(
+            entries,
+            "因子归因",
+            f"20日上涨 {return20:.2f}%，但相对{market_label}、相对{pool_label}都接近，先按共同因子上涨处理",
+            up=0.02,
+            range=0.12,
+            down=0.02,
+            category="mean_reversion",
+        )
 
 
 def _mean_reversion_factor_evidence(entries: list[dict[str, Any]], factor_profile: dict[str, Any]) -> None:
@@ -719,11 +797,18 @@ def _factor_context(
             "return60_pct": _round_optional(_return_pct(index_bars, 60)),
         },
         "pool": {
+            "sample_size": len(symbol_returns),
             "average_return20_pct": _round_optional(
                 _average_optional(row.get("return20_pct") for row in symbol_returns.values())
             ),
             "average_return60_pct": _round_optional(
                 _average_optional(row.get("return60_pct") for row in symbol_returns.values())
+            ),
+            "median_return20_pct": _round_optional(
+                _median_optional(row.get("return20_pct") for row in symbol_returns.values())
+            ),
+            "median_return60_pct": _round_optional(
+                _median_optional(row.get("return60_pct") for row in symbol_returns.values())
             ),
         },
         "symbols": symbol_returns,
@@ -744,6 +829,12 @@ def _factor_profile(
     return60 = _to_float(symbol_returns.get("return60_pct"))
     index_context = factor_context.get("index") or {}
     pool_context = factor_context.get("pool") or {}
+    index_return20 = _to_float(index_context.get("return20_pct"))
+    index_return60 = _to_float(index_context.get("return60_pct"))
+    pool_average_return20 = _to_float(pool_context.get("average_return20_pct"))
+    pool_average_return60 = _to_float(pool_context.get("average_return60_pct"))
+    pool_median_return20 = _to_float(pool_context.get("median_return20_pct"))
+    pool_median_return60 = _to_float(pool_context.get("median_return60_pct"))
     ma = indicator.get("ma", {})
     ma20 = _to_float(ma.get("ma20"))
     ma60 = _to_float(ma.get("ma60"))
@@ -762,6 +853,22 @@ def _factor_profile(
             "ma20_deviation_pct": _round_optional(_price_deviation_pct(current_price, ma20)),
             "ma60_deviation_pct": _round_optional(_price_deviation_pct(current_price, ma60)),
             "volume_ratio": _round_optional(_to_float(indicator.get("volume_ratio"))),
+        },
+        "attribution": {
+            "stock_return20_pct": _round_optional(return20),
+            "stock_return60_pct": _round_optional(return60),
+            "market_return20_pct": _round_optional(index_return20),
+            "market_return60_pct": _round_optional(index_return60),
+            "pool_average_return20_pct": _round_optional(pool_average_return20),
+            "pool_average_return60_pct": _round_optional(pool_average_return60),
+            "pool_median_return20_pct": _round_optional(pool_median_return20),
+            "pool_median_return60_pct": _round_optional(pool_median_return60),
+            "excess_market_20_pct": _round_optional(_diff_optional(return20, index_return20)),
+            "excess_market_60_pct": _round_optional(_diff_optional(return60, index_return60)),
+            "excess_pool_average_20_pct": _round_optional(_diff_optional(return20, pool_average_return20)),
+            "excess_pool_average_60_pct": _round_optional(_diff_optional(return60, pool_average_return60)),
+            "excess_pool_median_20_pct": _round_optional(_diff_optional(return20, pool_median_return20)),
+            "excess_pool_median_60_pct": _round_optional(_diff_optional(return60, pool_median_return60)),
         },
     }
 
@@ -860,6 +967,16 @@ def _average_optional(values: Any) -> float | None:
     if not numbers:
         return None
     return sum(numbers) / len(numbers)
+
+
+def _median_optional(values: Any) -> float | None:
+    numbers = sorted(value for value in (_to_float(value) for value in values) if value is not None)
+    if not numbers:
+        return None
+    middle = len(numbers) // 2
+    if len(numbers) % 2:
+        return numbers[middle]
+    return (numbers[middle - 1] + numbers[middle]) / 2
 
 
 def _round_optional(value: Any, digits: int = 4) -> float | None:

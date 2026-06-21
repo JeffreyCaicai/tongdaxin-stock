@@ -76,6 +76,8 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("momentum_20_pct", html)
         self.assertIn("vs_index_20_pct", html)
         self.assertIn("vs_pool_20_pct", html)
+        self.assertIn("excess_market_20_pct", html)
+        self.assertIn("excess_pool_median_20_pct", html)
         self.assertIn("ma20_deviation_pct", html)
         self.assertIn('onclick="analyzePool()"', html)
         self.assertIn("function analyzePool()", html)
