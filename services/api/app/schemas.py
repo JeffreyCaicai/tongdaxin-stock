@@ -236,6 +236,14 @@ class StockPoolMarketAnalysisRequest(BaseModel):
     max_symbols: int = Field(default=30, ge=1, le=100)
 
 
+class StockPoolChanAnalysisRequest(BaseModel):
+    source: str = "tdx-official"
+    period: str = "daily"
+    persist: bool = True
+    max_symbols: int = Field(default=30, ge=1, le=100)
+    kline_limit: int = Field(default=240, ge=35, le=1000)
+
+
 class IndicatorSnapshotOut(BaseModel):
     symbol: str
     source: str

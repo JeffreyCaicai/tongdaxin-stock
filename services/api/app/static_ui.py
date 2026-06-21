@@ -172,6 +172,7 @@ def index_html() -> str:
         <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
       </div>
       <div class="toolbar pool-actions">
+        <button class="secondary" onclick="runChanAnalysis()" data-i18n="runChanAnalysis">缠论结构分析</button>
         <button class="secondary" onclick="generateSignals()" data-i18n="generatePoolSignals">生成持仓提示</button>
         <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">生成复盘</button>
         <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">MA/成交量回测</button>
@@ -249,6 +250,20 @@ def index_html() -> str:
         officialSourceHint: "当前使用通达信官方 Token 数据源。",
         realSourceHint: "当前使用通达信/真实行情源。若通达信 7709 连接失败，可临时切换 Eastmoney 兜底。",
         analyzePool: "分析股票池行情",
+        runChanAnalysis: "缠论结构分析",
+        chanAnalysisFailed: "缠论结构分析失败",
+        chanPeriod: "周期",
+        chanSignalCounts: "信号分布",
+        chanSignal: "缠论信号",
+        structure: "结构位置",
+        confidence: "信心等级",
+        center_range: "最近中枢",
+        trigger: "触发条件",
+        invalidation: "失效条件",
+        reason: "判断依据",
+        bar_count: "K线数",
+        stroke_count: "笔数",
+        center_count: "中枢数",
         generatePoolSignals: "生成持仓提示",
         dailyReview: "生成复盘",
         runBacktest: "MA/成交量回测",
@@ -373,6 +388,20 @@ def index_html() -> str:
         officialSourceHint: "Using the official Tongdaxin Token source.",
         realSourceHint: "Using Tongdaxin or a real market data source. If Tongdaxin 7709 fails, switch to Eastmoney fallback.",
         analyzePool: "Analyze Pool Quotes",
+        runChanAnalysis: "Chan Structure",
+        chanAnalysisFailed: "Chan structure analysis failed",
+        chanPeriod: "Period",
+        chanSignalCounts: "Signal mix",
+        chanSignal: "Chan Signal",
+        structure: "Structure",
+        confidence: "Confidence",
+        center_range: "Latest Center",
+        trigger: "Trigger",
+        invalidation: "Invalidation",
+        reason: "Reason",
+        bar_count: "Bars",
+        stroke_count: "Strokes",
+        center_count: "Centers",
         generatePoolSignals: "Generate Holding Hints",
         dailyReview: "Create Review",
         runBacktest: "MA/Volume Backtest",
@@ -484,6 +513,13 @@ def index_html() -> str:
         medium: "中",
         high: "高",
         complete_market_data: "补齐行情",
+        wait_for_structure: "等待结构",
+        trend_observe: "趋势观察",
+        center_range: "中枢震荡",
+        suspected_third_buy: "疑似三买",
+        upward_leave: "向上离开中枢",
+        suspected_third_sell: "疑似三卖",
+        downward_leave: "向下离开中枢",
         review_stop_loss: "复核止损",
         review_take_profit: "复核止盈",
         hold_and_monitor: "持有观察",
@@ -524,6 +560,13 @@ def index_html() -> str:
         medium: "Medium",
         high: "High",
         complete_market_data: "Complete market data",
+        wait_for_structure: "Wait for structure",
+        trend_observe: "Trend observation",
+        center_range: "Center range",
+        suspected_third_buy: "Possible third buy",
+        upward_leave: "Upward leave",
+        suspected_third_sell: "Possible third sell",
+        downward_leave: "Downward leave",
         review_stop_loss: "Review stop loss",
         review_take_profit: "Review take profit",
         hold_and_monitor: "Hold and monitor",
@@ -682,6 +725,28 @@ def index_html() -> str:
         renderPoolAnalysis(cachedReview);
       } catch (error) {
         document.getElementById("review").innerHTML = `<p class="status">${t("poolAnalysisFailed")}: ${escapeHtml(error.message)}</p>`;
+      }
+    }
+    async function runChanAnalysis() {
+      const poolId = selectedPoolId();
+      if (!poolId) return;
+      document.getElementById("actionStatus").textContent = "";
+      document.getElementById("review").innerHTML = `<p class="summary">${t("checking")}</p>`;
+      try {
+        cachedReview = await api(`/stock-pools/${poolId}/chan-analysis`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            source: marketSource(),
+            period: "daily",
+            persist: true,
+            max_symbols: 30,
+            kline_limit: 240
+          })
+        });
+        renderChanAnalysis(cachedReview);
+      } catch (error) {
+        document.getElementById("review").innerHTML = `<p class="status">${t("chanAnalysisFailed")}: ${escapeHtml(error.message)}</p>`;
       }
     }
     async function dailyReview() {
@@ -883,6 +948,10 @@ def index_html() -> str:
         renderPoolAnalysis(report);
         return;
       }
+      if (payload.report_type === "stock_pool_chan_analysis") {
+        renderChanAnalysis(report);
+        return;
+      }
       const quality = payload.data_quality || {};
       const focusKeys = payload.next_session_focus_keys || ["review_high_risk", "check_data_quality", "compare_with_thesis"];
       const summary = t("reviewedTemplate")
@@ -965,6 +1034,58 @@ def index_html() -> str:
           ${metricCells}
         </div>
         <div style="margin-top:12px">${table(rows, ["symbol", "name", "action_hint", "price"])}</div>
+      `;
+    }
+    function renderChanAnalysis(report) {
+      const payload = report.payload || report;
+      const quality = payload.data_quality || {};
+      const signalCounts = Object.entries(payload.signal_counts || {})
+        .map(([key, value]) => `${enumLabel(key)} ${value}`)
+        .join(", ") || "-";
+      const rows = (payload.items || []).map(item => {
+        const signal = item.signal || {};
+        const center = item.latest_center || null;
+        return {
+          symbol: item.symbol,
+          name: item.name || "",
+          structure: item.structure || "",
+          chanSignal: enumLabel(signal.type) || signal.label || "",
+          action: signal.action || "",
+          confidence: enumLabel(signal.confidence),
+          current_price: formatOptionalPrice(item.current_price),
+          center_range: center ? `${formatOptionalPrice(center.lower)} - ${formatOptionalPrice(center.upper)}` : "-",
+          trigger: signal.trigger || "-",
+          invalidation: signal.invalidation || "-",
+          reason: signal.reason || "",
+          bar_count: item.bar_count ?? 0,
+          stroke_count: item.stroke_count ?? 0,
+          center_count: item.center_count ?? 0
+        };
+      });
+      document.getElementById("review").innerHTML = `
+        <p class="summary">${escapeHtml(payload.summary || "")}</p>
+        <div class="metric-grid" style="margin-top:10px">
+          <div class="metric"><b>${t("marketDataSource")}</b>${escapeHtml(payload.tool_plan?.data_source || "-")}</div>
+          <div class="metric"><b>${t("chanPeriod")}</b>${escapeHtml(payload.scope?.period || "-")}</div>
+          <div class="metric"><b>${t("chanSignalCounts")}</b>${escapeHtml(signalCounts)}</div>
+          <div class="metric"><b>${t("failedSymbols")}</b>${(quality.failed_symbols || []).join(", ") || "-"}</div>
+        </div>
+        <div style="margin-top:12px">${table(rows, [
+          "symbol",
+          "name",
+          "structure",
+          "chanSignal",
+          "action",
+          "confidence",
+          "current_price",
+          "center_range",
+          "trigger",
+          "invalidation",
+          "reason",
+          "bar_count",
+          "stroke_count",
+          "center_count"
+        ])}</div>
       `;
     }
     function renderBacktest(result) {

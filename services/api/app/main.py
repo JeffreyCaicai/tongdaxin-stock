@@ -7,6 +7,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Query, Response, stat
 from fastapi.responses import HTMLResponse
 
 from .backtest import run_ma_volume_backtest, review_signal_outcomes
+from .chan_analysis import generate_stock_pool_chan_analysis
 from .csv_io import (
     HOLDING_CSV_FIELDS,
     WATCHLIST_CSV_FIELDS,
@@ -78,6 +79,7 @@ from .schemas import (
     SignalEvaluateRequest,
     SignalOut,
     SignalReviewOut,
+    StockPoolChanAnalysisRequest,
     StockPoolMarketAnalysisRequest,
     StockPoolMcpAnalysisRequest,
     StockPoolCreate,
@@ -1045,6 +1047,50 @@ def api_analyze_stock_pool_with_market_source(
         watchlist=refreshed_watchlist,
         quotes=quotes,
         source=payload.source,
+        failed_symbols=failed_symbols,
+        max_symbols=payload.max_symbols,
+    )
+    return _save_report(db, report=report, persist=payload.persist)
+
+
+@app.post("/stock-pools/{pool_id}/chan-analysis", response_model=ReportOut)
+def api_analyze_stock_pool_with_chan(
+    pool_id: int,
+    payload: StockPoolChanAnalysisRequest,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    pool = get_stock_pool(db, pool_id)
+    if pool is None:
+        raise HTTPException(status_code=404, detail="Stock pool not found")
+
+    watchlist = list_watchlist(db, pool_id=pool_id)
+    symbols = [
+        normalize_symbol(str(item["symbol"]))
+        for item in watchlist
+    ][: payload.max_symbols]
+    kline_by_symbol: dict[str, list[dict]] = {}
+    failed_symbols: list[str] = []
+
+    for symbol in symbols:
+        try:
+            kline = _fetch_kline_and_cache(
+                db,
+                symbol=symbol,
+                source=payload.source,
+                period=payload.period,
+                limit=payload.kline_limit,
+            )
+        except HTTPException:
+            failed_symbols.append(symbol)
+            continue
+        kline_by_symbol[symbol] = kline["bars"]
+
+    report = generate_stock_pool_chan_analysis(
+        pool=pool,
+        watchlist=watchlist,
+        kline_by_symbol=kline_by_symbol,
+        source=payload.source,
+        period=payload.period,
         failed_symbols=failed_symbols,
         max_symbols=payload.max_symbols,
     )

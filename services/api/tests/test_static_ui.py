@@ -63,6 +63,11 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('onclick="analyzePool()"', html)
         self.assertIn("function analyzePool()", html)
         self.assertIn("/market-analysis", html)
+        self.assertIn('onclick="runChanAnalysis()"', html)
+        self.assertIn("function runChanAnalysis()", html)
+        self.assertIn("/chan-analysis", html)
+        self.assertIn("renderChanAnalysis", html)
+        self.assertIn("stock_pool_chan_analysis", html)
         self.assertIn("marketDataSource", html)
         self.assertIn("renderPoolAnalysis", html)
         self.assertIn('onclick="generateSignals()"', html)
@@ -74,6 +79,7 @@ class StaticUiTests(unittest.TestCase):
         html = index_html()
 
         self.assertIn("分析股票池行情", html)
+        self.assertIn("缠论结构分析", html)
         self.assertIn("生成持仓提示", html)
         self.assertIn("MA/成交量回测", html)
         self.assertIn("交易提示", html)
@@ -85,6 +91,8 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("watching: \"观察中\"", html)
         self.assertIn("function priorityLabel", html)
         self.assertIn("noTradeHints", html)
+        self.assertIn("trigger", html)
+        self.assertIn("invalidation", html)
 
     def test_generate_signals_uses_action_status_not_analysis_result(self) -> None:
         html = index_html()
