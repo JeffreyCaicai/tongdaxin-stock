@@ -84,6 +84,8 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("MA/成交量回测", html)
         self.assertIn("交易提示", html)
         self.assertIn("分析结果", html)
+        self.assertIn("analysis-panel", html)
+        self.assertIn("analysisResultFocus", html)
         self.assertIn("analysisResultHint", html)
         self.assertIn('id="actionStatus"', html)
         self.assertIn("priority: \"优先级\"", html)

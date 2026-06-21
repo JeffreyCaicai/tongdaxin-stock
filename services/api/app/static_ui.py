@@ -12,8 +12,15 @@ def index_html() -> str:
     :root {
       color-scheme: light;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f7f8f5;
+      background: #f3f5f0;
       color: #20231f;
+      --surface: #ffffff;
+      --surface-muted: #f7f8f5;
+      --line: #d9ded4;
+      --line-strong: #c1cbbd;
+      --text-muted: #5a6255;
+      --accent: #2f5d50;
+      --accent-soft: #eef5f1;
     }
     body { margin: 0; }
     header {
@@ -21,9 +28,9 @@ def index_html() -> str:
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding: 18px 24px;
-      border-bottom: 1px solid #d9ded4;
-      background: #ffffff;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
       position: sticky;
       top: 0;
       z-index: 2;
@@ -31,17 +38,22 @@ def index_html() -> str:
     h1 { font-size: 20px; margin: 0; letter-spacing: 0; }
     main {
       display: grid;
-      grid-template-columns: minmax(280px, 360px) 1fr;
-      min-height: calc(100vh - 66px);
+      grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+      min-height: calc(100vh - 58px);
     }
     aside {
-      border-right: 1px solid #d9ded4;
-      background: #ffffff;
+      border-right: 1px solid var(--line);
+      background: var(--surface);
       padding: 18px;
+      position: sticky;
+      top: 58px;
+      height: calc(100vh - 58px);
+      box-sizing: border-box;
+      overflow: auto;
     }
-    section { padding: 18px 24px; }
-    h2 { font-size: 15px; margin: 0 0 12px; }
-    label { display: block; font-size: 12px; color: #5a6255; margin: 12px 0 5px; }
+    section { padding: 22px 28px 28px; }
+    h2 { font-size: 16px; margin: 0 0 12px; }
+    label { display: block; font-size: 12px; color: var(--text-muted); margin: 12px 0 5px; }
     input, textarea, select {
       box-sizing: border-box;
       border: 1px solid #cfd6c9;
@@ -50,11 +62,15 @@ def index_html() -> str:
       font: inherit;
       background: #fbfcfa;
     }
+    input:focus, textarea:focus, select:focus {
+      outline: 2px solid #bfd5cc;
+      outline-offset: 1px;
+    }
     input, textarea { width: 100%; }
     textarea { min-height: 68px; resize: vertical; }
     button {
-      border: 1px solid #2f5d50;
-      background: #2f5d50;
+      border: 1px solid var(--accent);
+      background: var(--accent);
       color: white;
       border-radius: 6px;
       padding: 9px 11px;
@@ -62,43 +78,72 @@ def index_html() -> str:
       cursor: pointer;
     }
     button.secondary {
-      background: #ffffff;
-      color: #2f5d50;
+      background: var(--surface);
+      color: var(--accent);
     }
+    button:hover { filter: brightness(0.98); }
     .header-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
     .pool-bar {
-      display: flex;
-      gap: 10px;
-      align-items: flex-end;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: minmax(220px, 340px) minmax(0, 1fr);
+      gap: 12px;
+      align-items: end;
       margin-bottom: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 12px;
     }
-    .pool-field { flex: 0 1 220px; }
+    .pool-field { min-width: 0; }
     .pool-field select,
     .pool-field input { width: 100%; }
     .pool-value {
-      border: 1px solid #d9ded4;
+      border: 1px solid var(--line);
       border-radius: 6px;
       padding: 9px 10px;
-      background: #f7f8f5;
+      background: var(--surface-muted);
       min-height: 40px;
       box-sizing: border-box;
+      font-weight: 600;
     }
-    .pool-actions { margin-bottom: 16px; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 14px; }
+    .pool-actions {
+      margin: 0;
+      align-items: center;
+      justify-content: flex-start;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+      gap: 16px;
+      align-items: start;
+    }
     .panel {
-      border: 1px solid #d9ded4;
+      border: 1px solid var(--line);
       border-radius: 8px;
-      background: #ffffff;
-      padding: 14px;
-      min-height: 180px;
+      background: var(--surface);
+      padding: 16px;
+      min-height: 160px;
+      box-shadow: 0 1px 2px rgba(31, 42, 35, 0.03);
+    }
+    .analysis-panel {
+      grid-column: 1 / -1;
+      min-height: 360px;
+      border-color: var(--line-strong);
+    }
+    .analysis-panel h2 { font-size: 18px; }
+    .analysis-panel .table-scroll table { min-width: 1180px; }
+    .backtest-panel { grid-column: 1 / -1; }
+    .panel-subtitle {
+      margin: -2px 0 12px;
+      color: var(--text-muted);
+      font-size: 13px;
     }
     .table-scroll { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { text-align: left; border-bottom: 1px solid #edf0ea; padding: 8px 6px; vertical-align: top; }
     td { word-break: break-word; }
-    th { color: #5a6255; font-weight: 600; }
+    th { color: var(--text-muted); font-weight: 600; }
     .holdings-table th,
     .holdings-table td { white-space: nowrap; word-break: normal; }
     .holdings-table .symbol-cell { font-variant-numeric: tabular-nums; }
@@ -109,20 +154,39 @@ def index_html() -> str:
     .table-button { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
     .gain { color: #b42318; }
     .loss { color: #176b3a; }
-    .status { font-size: 13px; color: #5a6255; }
-    .summary { background: #f7f8f5; border-radius: 6px; padding: 10px; margin: 0; }
-    .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 8px; }
-    .metric { background: #f7f8f5; border-radius: 6px; padding: 10px; }
-    .metric b { display: block; font-size: 12px; color: #5a6255; margin-bottom: 3px; }
+    .status { font-size: 13px; color: var(--text-muted); }
+    .summary {
+      background: var(--accent-soft);
+      border-left: 3px solid var(--accent);
+      border-radius: 6px;
+      padding: 11px 12px;
+      margin: 0;
+      font-weight: 600;
+    }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 8px; }
+    .metric { background: var(--surface-muted); border-radius: 6px; padding: 10px; }
+    .metric b { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 3px; }
     .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
     .panel-head h2 { margin: 0; }
     .panel-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .inline-select { max-width: 150px; padding: 6px 8px; font-size: 13px; }
     ul { margin: 8px 0 0; padding-left: 18px; }
+    @media (max-width: 1160px) {
+      .metric-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .grid { grid-template-columns: 1fr; }
+      .analysis-panel,
+      .backtest-panel { grid-column: auto; }
+    }
     @media (max-width: 840px) {
       header { align-items: flex-start; flex-direction: column; }
       main { grid-template-columns: 1fr; }
-      aside { border-right: 0; border-bottom: 1px solid #d9ded4; }
+      aside {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+        position: static;
+        height: auto;
+      }
+      section { padding: 16px; }
       .pool-bar { display: grid; grid-template-columns: 1fr; }
       .pool-field { width: 100%; }
       .grid { grid-template-columns: 1fr; }
@@ -169,27 +233,32 @@ def index_html() -> str:
           <label data-i18n="personalPool">个人股票池</label>
           <div class="pool-value" id="poolName">默认股票池</div>
         </div>
-        <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
-      </div>
-      <div class="toolbar pool-actions">
-        <button class="secondary" onclick="runChanAnalysis()" data-i18n="runChanAnalysis">缠论结构分析</button>
-        <button class="secondary" onclick="generateSignals()" data-i18n="generatePoolSignals">生成持仓提示</button>
-        <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">生成复盘</button>
-        <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">MA/成交量回测</button>
+        <div class="toolbar pool-actions">
+          <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
+          <button class="secondary" onclick="runChanAnalysis()" data-i18n="runChanAnalysis">缠论结构分析</button>
+          <button class="secondary" onclick="generateSignals()" data-i18n="generatePoolSignals">生成持仓提示</button>
+          <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">生成复盘</button>
+          <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">MA/成交量回测</button>
+        </div>
       </div>
       <p class="status" id="actionStatus"></p>
       <div class="grid">
-        <div class="panel">
+        <div class="panel analysis-panel">
+          <h2 data-i18n="analysisResult">分析结果</h2>
+          <p class="panel-subtitle" data-i18n="analysisResultFocus">这里优先显示股票池级分析、缠论结构和每日复盘明细。</p>
+          <div id="review"><p class="status" data-i18n="analysisResultHint">这里显示股票池行情分析或每日复盘结果。</p></div>
+        </div>
+        <div class="panel watchlist-panel">
           <h2 data-i18n="poolMembers">股票池</h2>
           <p class="status" id="poolHint"></p>
           <div id="watchlist"></div>
         </div>
-        <div class="panel">
+        <div class="panel holdings-panel">
           <h2 data-i18n="holdings">持仓</h2>
           <p class="status" id="holdingsHint"></p>
           <div id="holdings"></div>
         </div>
-        <div class="panel">
+        <div class="panel signals-panel">
           <div class="panel-head">
             <h2 data-i18n="tradeHints">交易提示</h2>
             <div class="panel-controls">
@@ -202,11 +271,7 @@ def index_html() -> str:
           <p class="status" id="signalHint"></p>
           <div id="signals"></div>
         </div>
-        <div class="panel">
-          <h2 data-i18n="analysisResult">分析结果</h2>
-          <div id="review"><p class="status" data-i18n="analysisResultHint">这里显示股票池行情分析或每日复盘结果。</p></div>
-        </div>
-        <div class="panel">
+        <div class="panel backtest-panel">
           <h2 data-i18n="backtestTool">MA/成交量回测</h2>
           <div id="backtest"><p class="status" data-i18n="backtestHint">使用左侧输入框中的股票代码，按日 K 线跑一套固定的 MA/成交量趋势规则。</p></div>
         </div>
@@ -275,6 +340,7 @@ def index_html() -> str:
         signals: "信号",
         tradeHints: "交易提示",
         analysisResult: "分析结果",
+        analysisResultFocus: "这里优先显示股票池级分析、缠论结构和每日复盘明细。",
         analysisResultHint: "这里显示股票池行情分析或每日复盘结果。",
         backtest: "回测",
         backtestTool: "MA/成交量回测",
@@ -413,6 +479,7 @@ def index_html() -> str:
         signals: "Signals",
         tradeHints: "Trade Hints",
         analysisResult: "Analysis Result",
+        analysisResultFocus: "Pool analysis, Chan structure, and daily review details appear here first.",
         analysisResultHint: "Pool quote analysis and daily review results appear here.",
         backtest: "Backtest",
         backtestTool: "MA/Volume Backtest",
