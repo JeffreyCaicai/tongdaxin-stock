@@ -139,6 +139,7 @@ def index_html() -> str:
     .holdings-table .number-cell { text-align: right; font-variant-numeric: tabular-nums; }
     .holdings-table .action-cell { text-align: center; }
     .quantity-input { width: 72px; min-width: 72px; padding: 6px 7px; text-align: right; }
+    .price-input { width: 86px; min-width: 86px; padding: 6px 7px; text-align: right; }
     .table-button { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
     .gain { color: #b42318; }
     .loss { color: #176b3a; }
@@ -219,7 +220,6 @@ def index_html() -> str:
       <div class="action-bar toolbar pool-actions">
         <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
         <button class="secondary" onclick="runChanAnalysis()" data-i18n="runChanAnalysis">缠论结构分析</button>
-        <button class="secondary" onclick="generateSignals()" data-i18n="generatePoolSignals">生成持仓提示</button>
         <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">生成复盘</button>
         <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">MA/成交量回测</button>
       </div>
@@ -239,19 +239,6 @@ def index_html() -> str:
           <h2 data-i18n="holdings">持仓</h2>
           <p class="status" id="holdingsHint"></p>
           <div id="holdings"></div>
-        </div>
-        <div class="panel signals-panel">
-          <div class="panel-head">
-            <h2 data-i18n="tradeHints">交易提示</h2>
-            <div class="panel-controls">
-              <select class="inline-select" id="signalView" onchange="renderSignals(cachedSignals)">
-                <option value="latest" data-i18n="latestSignals">最新</option>
-                <option value="history" data-i18n="historySignals">历史</option>
-              </select>
-            </div>
-          </div>
-          <p class="status" id="signalHint"></p>
-          <div id="signals"></div>
         </div>
         <div class="panel backtest-panel">
           <h2 data-i18n="backtestTool">MA/成交量回测</h2>
@@ -278,6 +265,11 @@ def index_html() -> str:
         quantity: "数量",
         saveQuantity: "保存数量",
         quantityUpdated: "已更新持仓数量",
+        holdingAdded: "已加入持仓",
+        holdingAlreadyExists: "该股票已在持仓栏",
+        addHoldingFromPool: "加入持仓",
+        addHoldingFailed: "加入持仓失败",
+        holdingUpdated: "已更新持仓",
         costPrice: "成本价",
         stopLoss: "止损价",
         takeProfit: "止盈价",
@@ -317,14 +309,12 @@ def index_html() -> str:
         bar_count: "K线数",
         stroke_count: "笔数",
         center_count: "中枢数",
-        generatePoolSignals: "生成持仓提示",
         dailyReview: "生成复盘",
         runBacktest: "MA/成交量回测",
         holdings: "持仓",
         poolMembers: "股票池",
         poolHint: "这里是你的关注名单，行情分析范围由个人股票池决定。",
         signals: "信号",
-        tradeHints: "交易提示",
         analysisResult: "分析结果",
         analysisResultFocus: "这里优先显示股票池级分析、缠论结构和每日复盘明细。",
         analysisResultHint: "这里显示股票池行情分析或每日复盘结果。",
@@ -339,9 +329,6 @@ def index_html() -> str:
         backtestAssumption: "这是固定规则的历史模拟，不包含滑点、手续费、仓位管理和人工判断。",
         noData: "暂无数据。",
         quoteMissing: "未取到现价",
-        noTradeHints: "暂无交易提示。关注股只进入观察名单，建仓或生成持仓提示后才会出现交易提示。",
-        generatedSignals: "已生成持仓提示",
-        operationDoneTemplate: "{action}: {count}",
         poolAnalysisFailed: "股票池分析失败",
         mcpToolPlan: "MCP 工具计划",
         marketDataSource: "行情源",
@@ -354,15 +341,11 @@ def index_html() -> str:
         duplicateHoldingNote: "检测到相同股票代码，已更新原持仓，避免重复记录。",
         autoSignalCreated: "已为该股票自动生成最新信号",
         poolHoldingsHint: "正在显示当前股票池中每只股票最新一条持仓。",
-        latestSignals: "最新",
-        historySignals: "历史",
-        poolLatestSignalsHint: "正在显示当前股票池中每只股票最新一条交易提示。",
-        poolHistorySignalsHint: "正在显示当前股票池最近保存的历史交易提示。",
         highRiskSymbols: "高风险股票",
         failedFetchCount: "数据拉取失败数",
         holdingDetails: "持仓明细",
         highRiskSignalDetails: "高风险信号明细",
-        recentSignalDetails: "近期交易提示",
+        recentSignalDetails: "近期预测信号",
         failedFetchDetails: "数据拉取失败明细",
         fetchOk: "未发现数据拉取失败",
         reviewedTemplate: "已复盘 {holdings} 条持仓和 {signals} 条近期信号。",
@@ -421,6 +404,11 @@ def index_html() -> str:
         quantity: "Quantity",
         saveQuantity: "Save Quantity",
         quantityUpdated: "Holding quantity updated",
+        holdingAdded: "Added to holdings",
+        holdingAlreadyExists: "Already in holdings",
+        addHoldingFromPool: "Add Holding",
+        addHoldingFailed: "Add holding failed",
+        holdingUpdated: "Holding updated",
         costPrice: "Cost Price",
         stopLoss: "Stop Loss",
         takeProfit: "Take Profit",
@@ -460,14 +448,12 @@ def index_html() -> str:
         bar_count: "Bars",
         stroke_count: "Strokes",
         center_count: "Centers",
-        generatePoolSignals: "Generate Holding Hints",
         dailyReview: "Create Review",
         runBacktest: "MA/Volume Backtest",
         holdings: "Holdings",
         poolMembers: "Stock Pool",
         poolHint: "This is your watchlist. The personal stock pool controls the quote analysis scope.",
         signals: "Signals",
-        tradeHints: "Trade Hints",
         analysisResult: "Analysis Result",
         analysisResultFocus: "Pool analysis, Chan structure, and daily review details appear here first.",
         analysisResultHint: "Pool quote analysis and daily review results appear here.",
@@ -482,9 +468,6 @@ def index_html() -> str:
         backtestAssumption: "This is a fixed-rule historical simulation. It does not include slippage, fees, position sizing, or manual judgment.",
         noData: "No data yet.",
         quoteMissing: "Quote unavailable",
-        noTradeHints: "No trade hints yet. Watched symbols stay on the watchlist; hints appear after you create holdings or generate holding hints.",
-        generatedSignals: "Generated holding hints",
-        operationDoneTemplate: "{action}: {count}",
         poolAnalysisFailed: "Pool analysis failed",
         mcpToolPlan: "MCP tool plan",
         marketDataSource: "Market source",
@@ -497,15 +480,11 @@ def index_html() -> str:
         duplicateHoldingNote: "Same symbol detected; updated the existing holding to avoid duplicates.",
         autoSignalCreated: "A fresh signal was generated for this symbol",
         poolHoldingsHint: "Showing the latest holding per symbol in the current stock pool.",
-        latestSignals: "Latest",
-        historySignals: "History",
-        poolLatestSignalsHint: "Showing the latest trade hint per symbol in the current stock pool.",
-        poolHistorySignalsHint: "Showing recent historical trade hints in the current stock pool.",
         highRiskSymbols: "High-risk symbols",
         failedFetchCount: "Failed fetches",
         holdingDetails: "Holding Details",
         highRiskSignalDetails: "High-risk Signal Details",
-        recentSignalDetails: "Recent Trade Hints",
+        recentSignalDetails: "Recent Prediction Signals",
         failedFetchDetails: "Failed Fetch Details",
         fetchOk: "No failed data fetches",
         reviewedTemplate: "Reviewed {holdings} holdings and {signals} recent signals.",
@@ -697,7 +676,6 @@ def index_html() -> str:
     let cachedPools = [];
     let cachedWatchlist = [];
     let cachedHoldings = [];
-    let cachedSignals = [];
     let holdingRenderSeq = 0;
     let autoNameValue = "";
     let nameEditedManually = false;
@@ -738,8 +716,6 @@ def index_html() -> str:
       renderWatchlist(cachedWatchlist);
       cachedHoldings = await api("/holdings");
       await renderHoldings(cachedHoldings);
-      cachedSignals = await api("/signals");
-      renderSignals(cachedSignals);
     }
     async function loadPools() {
       cachedPools = await api("/stock-pools");
@@ -754,17 +730,6 @@ def index_html() -> str:
       const selected = cachedPools.find(pool => pool.is_default) || cachedPools[0];
       const value = selected ? selected.id : localStorage.getItem("tdx_pool_id");
       return value ? Number(value) : null;
-    }
-    async function generateSignals() {
-      const result = await api("/workbench/actions/from-market", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({source: marketSource(), persist: true, include_technical: false, pool_id: selectedPoolId()})
-      });
-      await refreshAll();
-      document.getElementById("actionStatus").textContent = t("operationDoneTemplate")
-        .replace("{action}", t("generatedSignals"))
-        .replace("{count}", result.generated_signals);
     }
     async function analyzePool() {
       const poolId = selectedPoolId();
@@ -868,46 +833,31 @@ def index_html() -> str:
           <td class="symbol-cell">${escapeHtml(row.symbol)}</td>
           <td class="name-cell">${escapeHtml(row.name || "")}</td>
           <td class="number-cell"><input class="quantity-input" id="holding-qty-${Number(row.id)}" type="number" min="0" step="1" value="${escapeHtml(row.quantity ?? 0)}"></td>
-          <td class="number-cell">${escapeHtml(formatOptionalPrice(row.cost_price))}</td>
+          <td class="number-cell"><input class="price-input" id="holding-cost-${Number(row.id)}" type="number" min="0.001" step="0.001" value="${escapeHtml(formatOptionalPrice(row.cost_price))}"></td>
           <td class="number-cell">${escapeHtml(formatOptionalPrice(row.current_price) || t("quoteMissing"))}</td>
           <td class="number-cell">${escapeHtml(formatMoney(row.market_value))}</td>
           <td class="number-cell ${pnlClass(row.estimated_pnl)}">${escapeHtml(formatMoney(row.estimated_pnl))}</td>
           <td class="number-cell ${pnlClass(row.estimated_pnl)}">${escapeHtml(formatPercent(row.estimated_pnl_pct))}</td>
-          <td class="action-cell"><button class="secondary table-button" onclick="saveHoldingQuantity(${Number(row.id)})">${t("save")}</button></td>
+          <td class="action-cell"><button class="secondary table-button" onclick="saveHoldingEdit(${Number(row.id)})">${t("save")}</button></td>
         </tr>
       `).join("");
       return `<div class="table-scroll"><table class="holdings-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
     }
-    async function saveHoldingQuantity(holdingId) {
-      const input = document.getElementById(`holding-qty-${holdingId}`);
-      const quantity = Number(input?.value);
+    async function saveHoldingEdit(holdingId) {
+      const quantityInput = document.getElementById(`holding-qty-${holdingId}`);
+      const costInput = document.getElementById(`holding-cost-${holdingId}`);
+      const quantity = Number(quantityInput?.value);
+      const costPrice = Number(costInput?.value);
       if (!Number.isFinite(quantity) || quantity < 0) return;
+      if (!Number.isFinite(costPrice) || costPrice <= 0) return;
       const updated = await api(`/holdings/${holdingId}`, {
         method: "PATCH",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({quantity})
+        body: JSON.stringify({quantity, cost_price: costPrice})
       });
       cachedHoldings = cachedHoldings.map(row => Number(row.id) === Number(holdingId) ? updated : row);
-      document.getElementById("actionStatus").textContent = `${t("quantityUpdated")}: ${updated.symbol} ${updated.quantity}`;
+      document.getElementById("actionStatus").textContent = `${t("holdingUpdated")}: ${updated.symbol}`;
       await renderHoldings(cachedHoldings);
-    }
-    function renderSignals(rows) {
-      const view = document.getElementById("signalView").value;
-      const poolRows = filterByPoolSymbols(rows);
-      const selectedRows = view === "latest" ? latestBySymbol(poolRows) : poolRows.slice(0, 12);
-      document.getElementById("signalHint").textContent = view === "latest" ? t("poolLatestSignalsHint") : t("poolHistorySignalsHint");
-      const mapped = selectedRows.map(row => ({
-        ...row,
-        signal_type: enumLabel(row.signal_type),
-        action: enumLabel(row.action),
-        risk_level: enumLabel(row.risk_level),
-        created_at: shortTime(row.created_at)
-      }));
-      if (!mapped.length) {
-        document.getElementById("signals").innerHTML = `<p class="status">${t("noTradeHints")}</p>`;
-        return;
-      }
-      document.getElementById("signals").innerHTML = table(mapped, ["symbol", "signal_type", "action", "risk_level", "price", "created_at"]);
     }
     function renderWatchlist(rows) {
       document.getElementById("poolHint").textContent = t("poolHint");
@@ -916,7 +866,53 @@ def index_html() -> str:
         priority: priorityLabel(row.priority),
         status: enumLabel(row.status)
       }));
-      document.getElementById("watchlist").innerHTML = table(mapped, ["symbol", "name", "priority", "status"]);
+      document.getElementById("watchlist").innerHTML = watchlistTable(mapped);
+    }
+    function watchlistTable(rows) {
+      if (!rows.length) return `<p class="status">${t("noData")}</p>`;
+      const fields = ["symbol", "name", "priority", "status", "action"];
+      const head = fields.map(field => `<th>${escapeHtml(t(field))}</th>`).join("");
+      const body = rows.map(row => `
+        <tr>
+          <td>${escapeHtml(row.symbol)}</td>
+          <td>${escapeHtml(row.name || "")}</td>
+          <td>${escapeHtml(row.priority || "")}</td>
+          <td>${escapeHtml(row.status || "")}</td>
+          <td><button class="secondary table-button" onclick="addHoldingFromWatchlist('${escapeHtml(row.symbol)}')">${t("addHoldingFromPool")}</button></td>
+        </tr>
+      `).join("");
+      return `<div class="table-scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+    }
+    async function addHoldingFromWatchlist(symbol) {
+      const normalized = normalizeSymbolText(symbol);
+      if (!normalized) return;
+      const existing = latestBySymbol(filterByPoolSymbols(cachedHoldings))
+        .find(row => normalizeSymbolText(row.symbol) === normalized);
+      if (existing) {
+        document.getElementById("actionStatus").textContent = `${t("holdingAlreadyExists")}: ${normalized}`;
+        return;
+      }
+      const item = cachedWatchlist.find(row => normalizeSymbolText(row.symbol) === normalized) || {};
+      try {
+        const quote = await api(`/market/quote/${encodeURIComponent(normalized)}?source=${encodeURIComponent(marketSource())}`);
+        const created = await api("/holdings", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            symbol: normalized,
+            name: quote.name || item.name || "",
+            market: item.market || "A",
+            quantity: 0,
+            cost_price: Number(quote.price),
+            initial_thesis: item.thesis || ""
+          })
+        });
+        cachedHoldings = [created, ...cachedHoldings];
+        document.getElementById("actionStatus").textContent = `${t("holdingAdded")}: ${created.symbol}`;
+        await renderHoldings(cachedHoldings);
+      } catch (error) {
+        document.getElementById("actionStatus").textContent = `${t("addHoldingFailed")}: ${error.message}`;
+      }
     }
     function priorityLabel(value) {
       const priority = Number(value);
@@ -1272,7 +1268,6 @@ def index_html() -> str:
     function rerenderCachedPanels() {
       renderWatchlist(cachedWatchlist);
       renderHoldings(cachedHoldings);
-      renderSignals(cachedSignals);
       if (cachedReview) renderDailyReview(cachedReview);
       if (cachedBacktest) renderBacktest(cachedBacktest);
     }

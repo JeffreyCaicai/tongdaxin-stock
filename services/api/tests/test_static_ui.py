@@ -25,7 +25,6 @@ class StaticUiTests(unittest.TestCase):
 
         self.assertIn("selectedPoolId", html)
         self.assertIn("poolHoldingsHint", html)
-        self.assertIn("poolLatestSignalsHint", html)
         self.assertNotIn('id="poolName"', html)
         self.assertNotIn("personalPool", html)
         self.assertNotIn('id="poolSelect"', html)
@@ -73,7 +72,7 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("stock_pool_chan_analysis", html)
         self.assertIn("marketDataSource", html)
         self.assertIn("renderPoolAnalysis", html)
-        self.assertIn('onclick="generateSignals()"', html)
+        self.assertNotIn('onclick="generateSignals()"', html)
         self.assertNotIn('id="newPoolName"', html)
         self.assertNotIn('onclick="createPool()"', html)
         self.assertNotIn("function createPool()", html)
@@ -83,9 +82,8 @@ class StaticUiTests(unittest.TestCase):
 
         self.assertIn("分析股票池行情", html)
         self.assertIn("缠论结构分析", html)
-        self.assertIn("生成持仓提示", html)
         self.assertIn("MA/成交量回测", html)
-        self.assertIn("交易提示", html)
+        self.assertIn("加入持仓", html)
         self.assertIn("分析结果", html)
         self.assertIn("analysis-panel", html)
         self.assertIn("analysisResultFocus", html)
@@ -95,21 +93,18 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("status: \"状态\"", html)
         self.assertIn("watching: \"观察中\"", html)
         self.assertIn("function priorityLabel", html)
-        self.assertIn("noTradeHints", html)
+        self.assertIn("watchlistTable", html)
+        self.assertIn("addHoldingFromWatchlist", html)
         self.assertIn("trigger", html)
         self.assertIn("invalidation", html)
 
-    def test_generate_signals_uses_action_status_not_analysis_result(self) -> None:
+    def test_trade_signal_panel_is_not_rendered_as_primary_ui(self) -> None:
         html = index_html()
 
-        self.assertIn(
-            'document.getElementById("actionStatus").textContent = t("operationDoneTemplate")',
-            html,
-        )
-        self.assertNotIn(
-            'document.getElementById("review").innerHTML = `<p class="summary">${t("generatedSignals")}',
-            html,
-        )
+        self.assertNotIn('id="signals"', html)
+        self.assertNotIn('id="signalView"', html)
+        self.assertNotIn('class="panel signals-panel"', html)
+        self.assertNotIn('onclick="generateSignals()"', html)
 
     def test_backtest_panel_explains_strategy_rules(self) -> None:
         html = index_html()
@@ -140,9 +135,11 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("market_value", html)
         self.assertIn("estimated_pnl", html)
         self.assertIn("estimated_pnl_pct", html)
-        self.assertIn("saveHoldingQuantity", html)
+        self.assertIn("saveHoldingEdit", html)
         self.assertIn('method: "PATCH"', html)
         self.assertIn('class="quantity-input"', html)
+        self.assertIn('class="price-input"', html)
+        self.assertIn("cost_price: costPrice", html)
         self.assertIn('class="holdings-table"', html)
         self.assertIn('class="number-cell"', html)
         self.assertIn("white-space: nowrap", html)
