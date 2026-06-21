@@ -64,6 +64,20 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("renderPoolAnalysis", html)
         self.assertIn('onclick="generateSignals()"', html)
 
+    def test_stock_pool_workflow_labels_are_user_facing(self) -> None:
+        html = index_html()
+
+        self.assertIn("分析股票池行情", html)
+        self.assertIn("生成持仓提示", html)
+        self.assertIn("回测当前股票", html)
+        self.assertIn("交易提示", html)
+        self.assertIn("分析结果", html)
+        self.assertIn("priority: \"优先级\"", html)
+        self.assertIn("status: \"状态\"", html)
+        self.assertIn("watching: \"观察中\"", html)
+        self.assertIn("function priorityLabel", html)
+        self.assertIn("noTradeHints", html)
+
 
 if __name__ == "__main__":
     unittest.main()

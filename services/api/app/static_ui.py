@@ -165,12 +165,12 @@ def index_html() -> str:
           </div>
           <button class="secondary" onclick="createPool()" data-i18n="createPool">创建股票池</button>
         </div>
-        <button onclick="analyzePool()" data-i18n="analyzePool">分析当前池</button>
+        <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
       </div>
       <div class="toolbar pool-actions">
-        <button class="secondary" onclick="generateSignals()" data-i18n="generatePoolSignals">生成今日信号</button>
-        <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">每日复盘</button>
-        <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">运行回测</button>
+        <button class="secondary" onclick="generateSignals()" data-i18n="generatePoolSignals">生成持仓提示</button>
+        <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">生成复盘</button>
+        <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">回测当前股票</button>
       </div>
       <div class="grid">
         <div class="panel">
@@ -191,7 +191,7 @@ def index_html() -> str:
         </div>
         <div class="panel">
           <div class="panel-head">
-            <h2 data-i18n="signals">信号</h2>
+            <h2 data-i18n="tradeHints">交易提示</h2>
             <div class="panel-controls">
               <select class="inline-select" id="signalScope" onchange="renderSignals(cachedSignals)">
                 <option value="current" data-i18n="currentSymbol">当前股票</option>
@@ -207,11 +207,11 @@ def index_html() -> str:
           <div id="signals"></div>
         </div>
         <div class="panel">
-          <h2 data-i18n="dailyReview">每日复盘</h2>
+          <h2 data-i18n="analysisResult">分析结果</h2>
           <div id="review"></div>
         </div>
         <div class="panel">
-          <h2 data-i18n="backtest">回测</h2>
+          <h2 data-i18n="backtestTool">回测工具</h2>
           <div id="backtest"></div>
         </div>
       </div>
@@ -249,23 +249,27 @@ def index_html() -> str:
         watchSymbolAdded: "已加入当前股票池",
         watchSymbolExists: "该股票已在当前股票池",
         mockSourceHint: "当前使用演示行情，名称和价格不代表真实市场。",
-        officialSourceHint: "当前使用通达信官方 Token 数据源，需要本地配置 TDX_API_KEY。",
+        officialSourceHint: "当前使用通达信官方 Token 数据源。",
         realSourceHint: "当前使用通达信/真实行情源。若通达信 7709 连接失败，可临时切换 Eastmoney 兜底。",
-        analyzePool: "分析当前池",
-        generatePoolSignals: "生成今日信号",
-        dailyReview: "每日复盘",
-        runBacktest: "运行回测",
+        analyzePool: "分析股票池行情",
+        generatePoolSignals: "生成持仓提示",
+        dailyReview: "生成复盘",
+        runBacktest: "回测当前股票",
         holdings: "持仓",
         selectedPool: "当前股票池",
         newPoolName: "新股票池",
         poolNamePlaceholder: "例如：短线观察",
         createPool: "创建股票池",
         poolMembers: "股票池",
-        poolHint: "当前分析范围由所选股票池决定。",
+        poolHint: "这里是你的关注名单，行情分析范围由所选股票池决定。",
         signals: "信号",
+        tradeHints: "交易提示",
+        analysisResult: "分析结果",
         backtest: "回测",
+        backtestTool: "回测工具",
         noData: "暂无数据。",
-        generatedSignals: "已生成信号",
+        noTradeHints: "暂无交易提示。关注股只进入观察名单，建仓或生成持仓提示后才会出现交易提示。",
+        generatedSignals: "已生成持仓提示",
         poolAnalysisFailed: "股票池分析失败",
         mcpToolPlan: "MCP 工具计划",
         marketDataSource: "行情源",
@@ -283,10 +287,10 @@ def index_html() -> str:
         allHoldingsHint: "正在显示股票池中每只股票最新一条持仓。",
         latestSignals: "最新",
         historySignals: "历史",
-        currentLatestSignalsHint: "当前只显示输入框中股票的最新信号。",
-        currentHistorySignalsHint: "当前只显示输入框中股票的最近历史信号。",
-        allLatestSignalsHint: "正在显示股票池中每只股票最新一条信号。",
-        allHistorySignalsHint: "正在显示最近保存的全股票池历史信号记录。",
+        currentLatestSignalsHint: "当前只显示输入框中股票的最新交易提示。",
+        currentHistorySignalsHint: "当前只显示输入框中股票的最近历史交易提示。",
+        allLatestSignalsHint: "正在显示股票池中每只股票最新一条交易提示。",
+        allHistorySignalsHint: "正在显示最近保存的全股票池历史交易提示。",
         highRiskSymbols: "高风险股票",
         failedFetchCount: "数据拉取失败数",
         fetchOk: "未发现数据拉取失败",
@@ -305,6 +309,8 @@ def index_html() -> str:
         averageLoss: "平均亏损",
         mode: "模式",
         id: "ID",
+        priority: "优先级",
+        status: "状态",
         signal_type: "信号类型",
         action: "动作",
         risk_level: "风险",
@@ -345,23 +351,27 @@ def index_html() -> str:
         watchSymbolAdded: "Added to the current stock pool",
         watchSymbolExists: "This symbol is already in the current stock pool",
         mockSourceHint: "Demo quotes are synthetic and do not represent the real market.",
-        officialSourceHint: "Using the official Tongdaxin Token source. Local TDX_API_KEY is required.",
+        officialSourceHint: "Using the official Tongdaxin Token source.",
         realSourceHint: "Using Tongdaxin or a real market data source. If Tongdaxin 7709 fails, switch to Eastmoney fallback.",
-        analyzePool: "Analyze Pool",
-        generatePoolSignals: "Generate Signals",
-        dailyReview: "Daily Review",
-        runBacktest: "Run Backtest",
+        analyzePool: "Analyze Pool Quotes",
+        generatePoolSignals: "Generate Holding Hints",
+        dailyReview: "Create Review",
+        runBacktest: "Backtest Current Symbol",
         holdings: "Holdings",
         selectedPool: "Current Pool",
         newPoolName: "New Pool",
         poolNamePlaceholder: "Example: Swing Watch",
         createPool: "Create Pool",
         poolMembers: "Stock Pool",
-        poolHint: "The selected stock pool controls the analysis scope.",
+        poolHint: "This is your watchlist. The selected stock pool controls the quote analysis scope.",
         signals: "Signals",
+        tradeHints: "Trade Hints",
+        analysisResult: "Analysis Result",
         backtest: "Backtest",
+        backtestTool: "Backtest Tool",
         noData: "No data yet.",
-        generatedSignals: "Generated signals",
+        noTradeHints: "No trade hints yet. Watched symbols stay on the watchlist; hints appear after you create holdings or generate holding hints.",
+        generatedSignals: "Generated holding hints",
         poolAnalysisFailed: "Pool analysis failed",
         mcpToolPlan: "MCP tool plan",
         marketDataSource: "Market source",
@@ -379,10 +389,10 @@ def index_html() -> str:
         allHoldingsHint: "Showing the latest holding per symbol in the portfolio.",
         latestSignals: "Latest",
         historySignals: "History",
-        currentLatestSignalsHint: "Showing only the latest signal for the symbol in the input box.",
-        currentHistorySignalsHint: "Showing recent historical signals for the symbol in the input box.",
-        allLatestSignalsHint: "Showing the latest signal per symbol in the portfolio.",
-        allHistorySignalsHint: "Showing recently saved historical signals across the portfolio.",
+        currentLatestSignalsHint: "Showing only the latest trade hint for the symbol in the input box.",
+        currentHistorySignalsHint: "Showing recent historical trade hints for the symbol in the input box.",
+        allLatestSignalsHint: "Showing the latest trade hint per symbol in the stock pool.",
+        allHistorySignalsHint: "Showing recently saved historical trade hints across the stock pool.",
         highRiskSymbols: "High-risk symbols",
         failedFetchCount: "Failed fetches",
         fetchOk: "No failed data fetches",
@@ -401,6 +411,8 @@ def index_html() -> str:
         averageLoss: "Average loss",
         mode: "mode",
         id: "ID",
+        priority: "Priority",
+        status: "Status",
         signal_type: "Signal Type",
         action: "Action",
         risk_level: "Risk",
@@ -442,9 +454,30 @@ def index_html() -> str:
         check_mcp_tool_errors: "检查 MCP 工具错误",
         review_stop_loss_first: "优先复核止损",
         review_take_profit_plan: "复核止盈计划",
-        review_pool_candidates: "复核股票池候选"
+        review_pool_candidates: "复核股票池候选",
+        watching: "观察中",
+        holding: "已持仓",
+        paused: "暂停观察"
       },
       en: {
+        hold_observe: "Hold and observe",
+        hard_stop_loss: "Hard stop loss",
+        take_profit: "Take-profit review",
+        max_loss_warning: "Max loss warning",
+        trend_break: "Trend break",
+        volume_breakout: "Volume breakout",
+        pullback_confirm: "Pullback confirmation",
+        momentum_weakness: "Momentum weakness",
+        hold: "Hold",
+        exit_or_reduce: "Exit/reduce",
+        trim_or_review: "Trim/review",
+        review_risk: "Review risk",
+        reduce_or_watch: "Reduce/watch",
+        breakout_watch: "Breakout watch",
+        hold_or_plan_add: "Hold/plan add",
+        low: "Low",
+        medium: "Medium",
+        high: "High",
         complete_market_data: "Complete market data",
         review_stop_loss: "Review stop loss",
         review_take_profit: "Review take profit",
@@ -455,7 +488,10 @@ def index_html() -> str:
         check_mcp_tool_errors: "Check MCP tool errors",
         review_stop_loss_first: "Review stop loss first",
         review_take_profit_plan: "Review take-profit plan",
-        review_pool_candidates: "Review pool candidates"
+        review_pool_candidates: "Review pool candidates",
+        watching: "Watching",
+        holding: "Holding",
+        paused: "Paused"
       }
     };
     let currentLanguage = localStorage.getItem("tdx_language") || "zh";
@@ -642,11 +678,36 @@ def index_html() -> str:
         risk_level: enumLabel(row.risk_level),
         created_at: shortTime(row.created_at)
       }));
+      if (!mapped.length) {
+        document.getElementById("signals").innerHTML = `<p class="status">${t("noTradeHints")}</p>`;
+        return;
+      }
       document.getElementById("signals").innerHTML = table(mapped, ["symbol", "signal_type", "action", "risk_level", "price", "created_at"]);
     }
     function renderWatchlist(rows) {
       document.getElementById("poolHint").textContent = t("poolHint");
-      document.getElementById("watchlist").innerHTML = table(rows, ["symbol", "name", "priority", "status"]);
+      const mapped = rows.map(row => ({
+        ...row,
+        priority: priorityLabel(row.priority),
+        status: enumLabel(row.status)
+      }));
+      document.getElementById("watchlist").innerHTML = table(mapped, ["symbol", "name", "priority", "status"]);
+    }
+    function priorityLabel(value) {
+      const priority = Number(value);
+      if (!Number.isFinite(priority)) return "";
+      if (currentLanguage === "zh") {
+        if (priority <= 1) return "最高";
+        if (priority === 2) return "高";
+        if (priority === 3) return "普通";
+        if (priority === 4) return "低";
+        return "仅观察";
+      }
+      if (priority <= 1) return "Highest";
+      if (priority === 2) return "High";
+      if (priority === 3) return "Normal";
+      if (priority === 4) return "Low";
+      return "Watch only";
     }
     function onSymbolChanged() {
       syncAutoName();
