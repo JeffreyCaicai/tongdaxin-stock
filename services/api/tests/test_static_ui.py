@@ -97,6 +97,8 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("addHoldingFromWatchlist", html)
         self.assertIn("trigger", html)
         self.assertIn("invalidation", html)
+        self.assertIn("extended_above_center", html)
+        self.assertIn("extended_below_center", html)
 
     def test_trade_signal_panel_is_not_rendered_as_primary_ui(self) -> None:
         html = index_html()

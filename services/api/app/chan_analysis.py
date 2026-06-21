@@ -277,6 +277,21 @@ def _candidate_signal(
             invalidation=f"跌破中枢下沿 {lower:.3f} 代表结构转弱。",
         )
     if current_price > upper:
+        if _is_extended_from_center(current_price=current_price, boundary=upper, lower=lower, upper=upper):
+            return _signal(
+                "extended_above_center",
+                "远离中枢上方",
+                "观察，等待新结构",
+                (
+                    f"当前价 {current_price:.3f} 已明显远离最近中枢上沿 {upper:.3f}，"
+                    "旧中枢只能说明历史离开，不能再当作近端三买触发位。"
+                ),
+                trigger=(
+                    f"等待当前价附近形成新中枢，或回踩不破最近一笔低点 "
+                    f"{latest_stroke['low']:.3f} 后再转强。"
+                ),
+                invalidation=f"跌破最近一笔低点 {latest_stroke['low']:.3f} 后重新评估强弱。",
+            )
         if latest_stroke["direction"] == "down":
             return _signal(
                 "suspected_third_buy",
@@ -295,6 +310,21 @@ def _candidate_signal(
             invalidation=f"重新跌回 {upper:.3f} 下方。",
         )
     if current_price < lower:
+        if _is_extended_from_center(current_price=current_price, boundary=lower, lower=lower, upper=upper):
+            return _signal(
+                "extended_below_center",
+                "远离中枢下方",
+                "观察，等待新结构",
+                (
+                    f"当前价 {current_price:.3f} 已明显远离最近中枢下沿 {lower:.3f}，"
+                    "旧中枢只能说明历史离开，不能再当作近端三卖触发位。"
+                ),
+                trigger=(
+                    f"等待当前价附近形成新中枢，或反抽不过最近一笔高点 "
+                    f"{latest_stroke['high']:.3f} 后再转弱。"
+                ),
+                invalidation=f"突破最近一笔高点 {latest_stroke['high']:.3f} 后重新评估强弱。",
+            )
         if latest_stroke["direction"] == "up":
             return _signal(
                 "suspected_third_sell",
@@ -329,10 +359,37 @@ def _structure_label(
     if current_price is None:
         return "中枢已形成"
     if current_price > center["upper"]:
+        if _is_extended_from_center(
+            current_price=current_price,
+            boundary=float(center["upper"]),
+            lower=float(center["lower"]),
+            upper=float(center["upper"]),
+        ):
+            return "远离中枢上方"
         return "中枢上方"
     if current_price < center["lower"]:
+        if _is_extended_from_center(
+            current_price=current_price,
+            boundary=float(center["lower"]),
+            lower=float(center["lower"]),
+            upper=float(center["upper"]),
+        ):
+            return "远离中枢下方"
         return "中枢下方"
     return "中枢震荡"
+
+
+def _is_extended_from_center(
+    *,
+    current_price: float,
+    boundary: float,
+    lower: float,
+    upper: float,
+) -> bool:
+    center_width = max(upper - lower, abs(boundary) * 0.02, 0.01)
+    extension = abs(current_price - boundary)
+    limit = max(center_width * 2, abs(boundary) * 0.12)
+    return extension > limit
 
 
 def _bar(raw: dict[str, Any]) -> dict[str, Any]:

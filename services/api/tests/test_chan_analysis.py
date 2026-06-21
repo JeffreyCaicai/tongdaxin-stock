@@ -71,6 +71,31 @@ class ChanAnalysisTests(unittest.TestCase):
         self.assertIn("reason", analysis["signal"])
         self.assertIn("latest_strokes", analysis)
 
+    def test_far_above_old_center_waits_for_new_structure(self) -> None:
+        bars = zigzag_bars()
+        bars.append(
+            {
+                "trade_date": "2026-02-15",
+                "open": 60.0,
+                "high": 62.0,
+                "low": 59.0,
+                "close": 61.5,
+                "volume": 2000,
+            }
+        )
+
+        analysis = analyze_chan_structure(
+            symbol="688323",
+            name="瑞华泰",
+            bars=bars,
+        )
+
+        self.assertEqual(analysis["structure"], "远离中枢上方")
+        self.assertEqual(analysis["signal"]["type"], "extended_above_center")
+        self.assertIn("旧中枢", analysis["signal"]["reason"])
+        self.assertIn("等待当前价附近形成新中枢", analysis["signal"]["trigger"])
+        self.assertNotIn("回踩不跌回", analysis["signal"]["trigger"])
+
     def test_stock_pool_chan_api_uses_watchlist_scope_and_reports_failures(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
