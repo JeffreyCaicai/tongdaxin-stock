@@ -141,6 +141,28 @@ def index_html() -> str:
     .quantity-input { width: 72px; min-width: 72px; padding: 6px 7px; text-align: right; }
     .price-input { width: 86px; min-width: 86px; padding: 6px 7px; text-align: right; }
     .table-button { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
+    .holdings-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(128px, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .summary-stat {
+      background: var(--surface-muted);
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+    .summary-stat b {
+      display: block;
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .summary-stat span {
+      font-size: 17px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
     .gain { color: #b42318; }
     .loss { color: #176b3a; }
     .status { font-size: 13px; color: var(--text-muted); }
@@ -162,6 +184,7 @@ def index_html() -> str:
     ul { margin: 8px 0 0; padding-left: 18px; }
     @media (max-width: 1160px) {
       .metric-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .holdings-summary { grid-template-columns: repeat(2, minmax(128px, 1fr)); }
       .grid { grid-template-columns: 1fr; }
       .analysis-panel,
       .backtest-panel { grid-column: auto; }
@@ -178,6 +201,7 @@ def index_html() -> str:
       section { padding: 16px; }
       .action-bar { align-items: stretch; }
       .action-bar button { flex: 1 1 auto; }
+      .holdings-summary { grid-template-columns: 1fr; }
       .grid { grid-template-columns: 1fr; }
     }
   </style>
@@ -374,6 +398,10 @@ def index_html() -> str:
         market_value: "持仓市值",
         estimated_pnl: "预计盈亏",
         estimated_pnl_pct: "盈亏比例",
+        total_cost_basis: "总成本",
+        total_market_value: "总市值",
+        total_estimated_pnl: "总盈亏",
+        total_estimated_pnl_pct: "总收益率",
         save: "保存",
         reasons: "原因",
         next_check: "下一步检查",
@@ -513,6 +541,10 @@ def index_html() -> str:
         market_value: "Market Value",
         estimated_pnl: "Estimated P/L",
         estimated_pnl_pct: "P/L %",
+        total_cost_basis: "Total Cost",
+        total_market_value: "Total Value",
+        total_estimated_pnl: "Total P/L",
+        total_estimated_pnl_pct: "Total Return",
         save: "Save",
         reasons: "Reasons",
         next_check: "Next Check",
@@ -841,7 +873,47 @@ def index_html() -> str:
           <td class="action-cell"><button class="secondary table-button" onclick="saveHoldingEdit(${Number(row.id)})">${t("save")}</button></td>
         </tr>
       `).join("");
-      return `<div class="table-scroll"><table class="holdings-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+      return `${holdingsSummary(rows)}<div class="table-scroll"><table class="holdings-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+    }
+    function holdingsSummary(rows) {
+      const summary = summarizeHoldings(rows);
+      return `
+        <div class="holdings-summary">
+          ${summaryStat("total_cost_basis", formatMoney(summary.totalCost))}
+          ${summaryStat("total_market_value", formatMoney(summary.totalMarketValue))}
+          ${summaryStat("total_estimated_pnl", formatMoney(summary.totalPnl), pnlClass(summary.totalPnl))}
+          ${summaryStat("total_estimated_pnl_pct", formatPercent(summary.totalPnlPct), pnlClass(summary.totalPnl))}
+        </div>
+      `;
+    }
+    function summaryStat(labelKey, value, className = "") {
+      return `<div class="summary-stat"><b>${t(labelKey)}</b><span class="${className}">${escapeHtml(value || "-")}</span></div>`;
+    }
+    function summarizeHoldings(rows) {
+      const summary = rows.reduce((summary, row) => {
+        const quantity = Number(row.quantity || 0);
+        const costPrice = Number(row.cost_price);
+        const currentPrice = Number(row.current_price);
+        if (Number.isFinite(quantity) && Number.isFinite(costPrice)) {
+          summary.totalCost += quantity * costPrice;
+        }
+        if (Number.isFinite(quantity) && Number.isFinite(costPrice) && Number.isFinite(currentPrice)) {
+          const costBasis = quantity * costPrice;
+          const marketValue = quantity * currentPrice;
+          summary.pricedCost += costBasis;
+          summary.totalMarketValue += marketValue;
+          summary.totalPnl += marketValue - costBasis;
+          summary.pricedCount += 1;
+        }
+        return summary;
+      }, {totalCost: 0, pricedCost: 0, pricedCount: 0, totalMarketValue: 0, totalPnl: 0, totalPnlPct: null});
+      if (!summary.pricedCount) {
+        summary.totalMarketValue = null;
+        summary.totalPnl = null;
+        return summary;
+      }
+      summary.totalPnlPct = summary.pricedCost > 0 ? (summary.totalPnl / summary.pricedCost) * 100 : null;
+      return summary;
     }
     async function saveHoldingEdit(holdingId) {
       const quantityInput = document.getElementById(`holding-qty-${holdingId}`);
