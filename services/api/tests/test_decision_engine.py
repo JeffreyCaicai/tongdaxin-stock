@@ -35,6 +35,29 @@ def trend_bars(start_price: float = 80.0, days: int = 90, step: float = 0.45) ->
     return bars
 
 
+def mixed_bars(
+    start_price: float = 80.0,
+    days: int = 90,
+    step: float = 0.45,
+    *,
+    final_price: float | None = None,
+    volume: float = 1000,
+) -> list[dict]:
+    bars = trend_bars(start_price=start_price, days=days, step=step)
+    for index, bar in enumerate(bars):
+        bar["volume"] = volume + index * 4
+    if final_price is not None:
+        bars[-1] = {
+            **bars[-1],
+            "open": final_price - 0.1,
+            "high": final_price + 0.5,
+            "low": final_price - 0.5,
+            "close": final_price,
+            "volume": volume * 0.62,
+        }
+    return bars
+
+
 class DecisionEngineTests(unittest.TestCase):
     def test_decision_engine_returns_probabilities_and_evidence(self) -> None:
         bars = trend_bars()
@@ -69,6 +92,41 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertTrue(any("regime_weight" in entry for entry in item["evidence"]))
         self.assertIn(item["decision"]["key"], {"hold_observe", "position_review", "wait_confirm"})
         self.assertTrue(item["evidence_summary"])
+
+    def test_decision_engine_adds_factor_evidence_conditioned_by_regime(self) -> None:
+        strong_bars = mixed_bars(start_price=50, days=100, step=0.65, final_price=112)
+        peer_bars = mixed_bars(start_price=50, days=100, step=0.12, final_price=62)
+        index_bars = mixed_bars(start_price=3000, days=120, step=0.8, final_price=3105)
+
+        report = generate_stock_pool_decision_engine(
+            pool={"id": 1, "name": "默认股票池"},
+            watchlist=[
+                {"id": 1, "symbol": "688630", "name": "芯碁微装", "priority": 1},
+                {"id": 2, "symbol": "603337", "name": "杰克科技", "priority": 2},
+            ],
+            holdings=[],
+            quotes={
+                "688630": {"symbol": "688630", "name": "芯碁微装", "price": 112, "pct_change": 2.4},
+                "603337": {"symbol": "603337", "name": "杰克科技", "price": 62, "pct_change": 0.2},
+            },
+            kline_by_symbol={"688630": strong_bars, "603337": peer_bars},
+            source="tdx-official",
+            horizon_days=20,
+            index_bars=index_bars,
+        )
+
+        item = next(row for row in report["items"] if row["symbol"] == "688630")
+        sources = {entry["source"] for entry in item["evidence"]}
+        self.assertIn("中期动量", sources)
+        self.assertIn("指数相对强弱", sources)
+        self.assertIn("股票池相对强弱", sources)
+        self.assertIn("均值回归位置", sources)
+        self.assertIn("factor_profile", item)
+        self.assertGreater(item["factor_profile"]["relative_strength"]["vs_index_20_pct"], 0)
+        self.assertGreater(item["factor_profile"]["relative_strength"]["vs_pool_20_pct"], 0)
+        self.assertTrue(
+            any(entry["source"] == "中期动量" and entry["regime_weight"] > 1 for entry in item["evidence"])
+        )
 
     def test_decision_engine_api_uses_watchlist_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

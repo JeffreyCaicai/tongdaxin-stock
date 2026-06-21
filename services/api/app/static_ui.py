@@ -386,6 +386,10 @@ def index_html() -> str:
         down_probability: "下跌概率",
         pnl_pct: "持仓盈亏",
         evidence_summary: "关键证据",
+        momentum_20_pct: "20日动量",
+        vs_index_20_pct: "相对指数20日",
+        vs_pool_20_pct: "相对股票池20日",
+        ma20_deviation_pct: "MA20偏离",
         current_price: "现价",
         market_value: "持仓市值",
         estimated_pnl: "预计盈亏",
@@ -527,6 +531,10 @@ def index_html() -> str:
         down_probability: "Down Prob.",
         pnl_pct: "Position P/L",
         evidence_summary: "Key Evidence",
+        momentum_20_pct: "20D Momentum",
+        vs_index_20_pct: "20D vs Index",
+        vs_pool_20_pct: "20D vs Pool",
+        ma20_deviation_pct: "MA20 Deviation",
         current_price: "Current Price",
         market_value: "Market Value",
         estimated_pnl: "Estimated P/L",
@@ -1292,6 +1300,10 @@ def index_html() -> str:
         const probabilities = item.probabilities || {};
         const decision = item.decision || {};
         const position = item.position || {};
+        const factor = item.factor_profile || {};
+        const momentum = factor.momentum || {};
+        const relative = factor.relative_strength || {};
+        const meanReversion = factor.mean_reversion || {};
         return {
           symbol: item.symbol,
           name: item.name || "",
@@ -1303,6 +1315,10 @@ def index_html() -> str:
           risk_level: enumLabel(decision.risk_level),
           confidence: enumLabel(decision.confidence),
           pnl_pct: formatPercent(position.pnl_pct),
+          momentum_20_pct: formatPercent(momentum.return20_pct),
+          vs_index_20_pct: formatPercent(relative.vs_index_20_pct),
+          vs_pool_20_pct: formatPercent(relative.vs_pool_20_pct),
+          ma20_deviation_pct: formatPercent(meanReversion.ma20_deviation_pct),
           evidence_summary: item.evidence_summary || "",
           next_check: decision.next_check || ""
         };
@@ -1332,6 +1348,10 @@ def index_html() -> str:
           "risk_level",
           "confidence",
           "pnl_pct",
+          "momentum_20_pct",
+          "vs_index_20_pct",
+          "vs_pool_20_pct",
+          "ma20_deviation_pct",
           "evidence_summary",
           "next_check"
         ])}</div>

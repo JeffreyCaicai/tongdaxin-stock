@@ -41,6 +41,7 @@ def generate_stock_pool_decision_engine(
         normalize_symbol(str(item["symbol"])): item for item in watchlist
     }
     pool_context = _pool_context(quotes)
+    factor_context = _factor_context(index_bars=index_bars or [], kline_by_symbol=kline_by_symbol)
     market_regime = market_regime or infer_market_regime(
         index_bars=index_bars or [],
         pool_quotes=quotes,
@@ -55,6 +56,7 @@ def generate_stock_pool_decision_engine(
             quote=quotes.get(symbol),
             bars=kline_by_symbol.get(symbol) or [],
             pool_context=pool_context,
+            factor_context=factor_context,
             market_regime=market_regime,
             period=period,
             horizon_days=horizon_days,
@@ -120,6 +122,7 @@ def _decision_item(
     quote: dict[str, Any] | None,
     bars: list[dict[str, Any]],
     pool_context: dict[str, Any],
+    factor_context: dict[str, Any],
     market_regime: dict[str, Any],
     period: str,
     horizon_days: int,
@@ -137,6 +140,13 @@ def _decision_item(
         else None
     )
     position = _position_context(holding, current_price)
+    factor_profile = _factor_profile(
+        symbol=symbol,
+        bars=bars,
+        indicator=indicator,
+        current_price=current_price,
+        factor_context=factor_context,
+    )
 
     prior = _prior_scores(
         pool_context=pool_context,
@@ -151,6 +161,7 @@ def _decision_item(
         chan=chan,
         position=position,
         pool_context=pool_context,
+        factor_profile=factor_profile,
         current_price=current_price,
     )
     _apply_regime_weights(evidence, market_regime)
@@ -177,6 +188,7 @@ def _decision_item(
             "recent_high_20": indicator.get("recent_high_20"),
             "recent_low_20": indicator.get("recent_low_20"),
         },
+        "factor_profile": factor_profile,
         "chan": {
             "structure": chan.get("structure") if chan else None,
             "signal_type": chan.get("signal", {}).get("type") if chan else None,
@@ -282,12 +294,16 @@ def _evidence_entries(
     chan: dict[str, Any] | None,
     position: dict[str, Any] | None,
     pool_context: dict[str, Any],
+    factor_profile: dict[str, Any],
     current_price: float | None,
 ) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     _ma_evidence(entries, indicator, current_price)
     _volume_evidence(entries, indicator, bars)
+    _momentum_factor_evidence(entries, factor_profile)
     _relative_strength_evidence(entries, quote, pool_context)
+    _relative_strength_factor_evidence(entries, factor_profile)
+    _mean_reversion_factor_evidence(entries, factor_profile)
     _chan_evidence(entries, chan)
     _position_evidence(entries, position)
     _price_location_evidence(entries, indicator, current_price)
@@ -324,6 +340,54 @@ def _volume_evidence(entries: list[dict[str, Any]], indicator: dict[str, Any], b
         _add_evidence(entries, "成交量", f"成交量比 {volume_ratio:.2f}，缩量等待方向", up=-0.04, range=0.22, down=0.03, category="mean_reversion")
 
 
+def _momentum_factor_evidence(entries: list[dict[str, Any]], factor_profile: dict[str, Any]) -> None:
+    momentum = factor_profile.get("momentum") or {}
+    return20 = _to_float(momentum.get("return20_pct"))
+    return60 = _to_float(momentum.get("return60_pct"))
+    if return20 is None or return60 is None:
+        return
+    if return20 >= 8 and return60 >= 15:
+        _add_evidence(
+            entries,
+            "中期动量",
+            f"20日收益 {return20:.2f}%，60日收益 {return60:.2f}%，收益延续较强",
+            up=0.3,
+            range=-0.04,
+            down=-0.1,
+            category="trend",
+        )
+    elif return20 >= 4 and return60 >= 8:
+        _add_evidence(
+            entries,
+            "中期动量",
+            f"20日收益 {return20:.2f}%，60日收益 {return60:.2f}%，中期动量偏强",
+            up=0.18,
+            range=0.02,
+            down=-0.06,
+            category="trend",
+        )
+    elif return20 <= -8 and return60 <= -12:
+        _add_evidence(
+            entries,
+            "中期动量",
+            f"20日收益 {return20:.2f}%，60日收益 {return60:.2f}%，弱势延续",
+            up=-0.1,
+            range=-0.02,
+            down=0.3,
+            category="risk",
+        )
+    elif abs(return20) <= 2 and abs(return60) <= 4:
+        _add_evidence(
+            entries,
+            "中期动量",
+            f"20日收益 {return20:.2f}%，60日收益 {return60:.2f}%，方向不明显",
+            up=0.01,
+            range=0.14,
+            down=0.01,
+            category="mean_reversion",
+        )
+
+
 def _relative_strength_evidence(
     entries: list[dict[str, Any]],
     quote: dict[str, Any] | None,
@@ -340,6 +404,132 @@ def _relative_strength_evidence(
         _add_evidence(entries, "相对强弱", f"涨跌幅弱于股票池均值 {abs(relative):.2f} 个百分点", up=-0.08, range=0.02, down=0.25, category="risk")
     else:
         _add_evidence(entries, "相对强弱", "与股票池均值接近", up=0.02, range=0.1, down=0.02, category="mean_reversion")
+
+
+def _relative_strength_factor_evidence(entries: list[dict[str, Any]], factor_profile: dict[str, Any]) -> None:
+    momentum = factor_profile.get("momentum") or {}
+    relative = factor_profile.get("relative_strength") or {}
+    return20 = _to_float(momentum.get("return20_pct"))
+    vs_index_20 = _to_float(relative.get("vs_index_20_pct"))
+    vs_index_60 = _to_float(relative.get("vs_index_60_pct"))
+    vs_pool_20 = _to_float(relative.get("vs_pool_20_pct"))
+    vs_pool_60 = _to_float(relative.get("vs_pool_60_pct"))
+
+    if vs_index_20 is not None or vs_index_60 is not None:
+        if (vs_index_20 or 0) >= 5 or (vs_index_60 or 0) >= 8:
+            _add_evidence(
+                entries,
+                "指数相对强弱",
+                f"20日相对指数 {vs_index_20 or 0:.2f}%，60日相对指数 {vs_index_60 or 0:.2f}%",
+                up=0.24,
+                range=0.02,
+                down=-0.08,
+                category="trend",
+            )
+        elif (return20 or 0) > 0 and (vs_index_20 or 0) <= -5:
+            _add_evidence(
+                entries,
+                "指数相对强弱",
+                f"20日仍上涨 {return20:.2f}%，但弱于指数 {abs(vs_index_20 or 0):.2f}%",
+                up=-0.06,
+                range=0.08,
+                down=0.16,
+                category="risk",
+            )
+        elif (vs_index_20 or 0) <= -5 or (vs_index_60 or 0) <= -8:
+            _add_evidence(
+                entries,
+                "指数相对强弱",
+                f"20日相对指数 {vs_index_20 or 0:.2f}%，60日相对指数 {vs_index_60 or 0:.2f}%",
+                up=-0.08,
+                range=0.02,
+                down=0.22,
+                category="risk",
+            )
+
+    if vs_pool_20 is not None or vs_pool_60 is not None:
+        if (vs_pool_20 or 0) >= 3 or (vs_pool_60 or 0) >= 6:
+            _add_evidence(
+                entries,
+                "股票池相对强弱",
+                f"20日强于股票池均值 {vs_pool_20 or 0:.2f}%，60日强于均值 {vs_pool_60 or 0:.2f}%",
+                up=0.18,
+                range=0.02,
+                down=-0.06,
+                category="trend",
+            )
+        elif (return20 or 0) > 0 and (vs_pool_20 or 0) <= -3:
+            _add_evidence(
+                entries,
+                "股票池相对强弱",
+                f"20日仍上涨 {return20:.2f}%，但弱于股票池均值 {abs(vs_pool_20 or 0):.2f}%",
+                up=-0.04,
+                range=0.08,
+                down=0.14,
+                category="risk",
+            )
+        elif (vs_pool_20 or 0) <= -3 or (vs_pool_60 or 0) <= -6:
+            _add_evidence(
+                entries,
+                "股票池相对强弱",
+                f"20日相对股票池 {vs_pool_20 or 0:.2f}%，60日相对股票池 {vs_pool_60 or 0:.2f}%",
+                up=-0.06,
+                range=0.02,
+                down=0.18,
+                category="risk",
+            )
+
+
+def _mean_reversion_factor_evidence(entries: list[dict[str, Any]], factor_profile: dict[str, Any]) -> None:
+    momentum = factor_profile.get("momentum") or {}
+    mean_reversion = factor_profile.get("mean_reversion") or {}
+    return20 = _to_float(momentum.get("return20_pct"))
+    ma20_deviation = _to_float(mean_reversion.get("ma20_deviation_pct"))
+    ma60_deviation = _to_float(mean_reversion.get("ma60_deviation_pct"))
+    volume_ratio = _to_float(mean_reversion.get("volume_ratio"))
+    if ma20_deviation is None:
+        return
+
+    if -3 <= ma20_deviation <= 5 and (volume_ratio is None or volume_ratio <= 0.85) and (return20 or 0) > 0:
+        _add_evidence(
+            entries,
+            "均值回归位置",
+            f"价格在 MA20 附近 {ma20_deviation:.2f}%，量能比 {volume_ratio or 0:.2f}，偏缩量回踩",
+            up=0.18,
+            range=0.1,
+            down=-0.04,
+            category="mean_reversion",
+        )
+    elif ma20_deviation >= 12:
+        _add_evidence(
+            entries,
+            "均值回归位置",
+            f"价格偏离 MA20 {ma20_deviation:.2f}%，短线回归压力上升",
+            up=-0.04,
+            range=0.18,
+            down=0.12,
+            category="mean_reversion",
+        )
+    elif ma20_deviation <= -8:
+        _add_evidence(
+            entries,
+            "均值回归位置",
+            f"价格低于 MA20 {abs(ma20_deviation):.2f}%，弱势修复仍需确认",
+            up=-0.06,
+            range=0.08,
+            down=0.18,
+            category="risk",
+        )
+    elif ma60_deviation is not None and ma60_deviation >= 25:
+        _add_evidence(
+            entries,
+            "均值回归位置",
+            f"价格偏离 MA60 {ma60_deviation:.2f}%，中期乖离偏高",
+            up=-0.02,
+            range=0.16,
+            down=0.1,
+            category="mean_reversion",
+        )
 
 
 def _chan_evidence(entries: list[dict[str, Any]], chan: dict[str, Any] | None) -> None:
@@ -511,6 +701,71 @@ def _pool_context(quotes: dict[str, dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _factor_context(
+    *,
+    index_bars: list[dict[str, Any]],
+    kline_by_symbol: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    symbol_returns = {
+        normalize_symbol(symbol): {
+            "return20_pct": _round_optional(_return_pct(bars, 20)),
+            "return60_pct": _round_optional(_return_pct(bars, 60)),
+        }
+        for symbol, bars in kline_by_symbol.items()
+    }
+    return {
+        "index": {
+            "return20_pct": _round_optional(_return_pct(index_bars, 20)),
+            "return60_pct": _round_optional(_return_pct(index_bars, 60)),
+        },
+        "pool": {
+            "average_return20_pct": _round_optional(
+                _average_optional(row.get("return20_pct") for row in symbol_returns.values())
+            ),
+            "average_return60_pct": _round_optional(
+                _average_optional(row.get("return60_pct") for row in symbol_returns.values())
+            ),
+        },
+        "symbols": symbol_returns,
+    }
+
+
+def _factor_profile(
+    *,
+    symbol: str,
+    bars: list[dict[str, Any]],
+    indicator: dict[str, Any],
+    current_price: float | None,
+    factor_context: dict[str, Any],
+) -> dict[str, Any]:
+    normalized_symbol = normalize_symbol(symbol)
+    symbol_returns = (factor_context.get("symbols") or {}).get(normalized_symbol, {})
+    return20 = _to_float(symbol_returns.get("return20_pct"))
+    return60 = _to_float(symbol_returns.get("return60_pct"))
+    index_context = factor_context.get("index") or {}
+    pool_context = factor_context.get("pool") or {}
+    ma = indicator.get("ma", {})
+    ma20 = _to_float(ma.get("ma20"))
+    ma60 = _to_float(ma.get("ma60"))
+    return {
+        "momentum": {
+            "return20_pct": _round_optional(return20),
+            "return60_pct": _round_optional(return60),
+        },
+        "relative_strength": {
+            "vs_index_20_pct": _round_optional(_diff_optional(return20, index_context.get("return20_pct"))),
+            "vs_index_60_pct": _round_optional(_diff_optional(return60, index_context.get("return60_pct"))),
+            "vs_pool_20_pct": _round_optional(_diff_optional(return20, pool_context.get("average_return20_pct"))),
+            "vs_pool_60_pct": _round_optional(_diff_optional(return60, pool_context.get("average_return60_pct"))),
+        },
+        "mean_reversion": {
+            "ma20_deviation_pct": _round_optional(_price_deviation_pct(current_price, ma20)),
+            "ma60_deviation_pct": _round_optional(_price_deviation_pct(current_price, ma60)),
+            "volume_ratio": _round_optional(_to_float(indicator.get("volume_ratio"))),
+        },
+    }
+
+
 def _symbol_order(watchlist: list[dict[str, Any]], holdings: list[dict[str, Any]]) -> list[str]:
     ordered_watchlist = sorted(
         watchlist,
@@ -583,6 +838,33 @@ def _atr_pct(indicator: dict[str, Any], current_price: float | None) -> float | 
     if atr is None or current_price in {None, 0}:
         return None
     return (atr / float(current_price)) * 100
+
+
+def _price_deviation_pct(price: float | None, baseline: float | None) -> float | None:
+    if price is None or baseline in {None, 0}:
+        return None
+    return (float(price) / float(baseline) - 1) * 100
+
+
+def _diff_optional(left: Any, right: Any) -> float | None:
+    left_value = _to_float(left)
+    right_value = _to_float(right)
+    if left_value is None or right_value is None:
+        return None
+    return left_value - right_value
+
+
+def _average_optional(values: Any) -> float | None:
+    numbers = [_to_float(value) for value in values]
+    numbers = [value for value in numbers if value is not None]
+    if not numbers:
+        return None
+    return sum(numbers) / len(numbers)
+
+
+def _round_optional(value: Any, digits: int = 4) -> float | None:
+    number = _to_float(value)
+    return round(number, digits) if number is not None else None
 
 
 def _apply_component(
