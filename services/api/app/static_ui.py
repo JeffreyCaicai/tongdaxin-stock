@@ -172,6 +172,7 @@ def index_html() -> str:
         <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">生成复盘</button>
         <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">MA/成交量回测</button>
       </div>
+      <p class="status" id="actionStatus"></p>
       <div class="grid">
         <div class="panel">
           <h2 data-i18n="poolMembers">股票池</h2>
@@ -198,7 +199,7 @@ def index_html() -> str:
         </div>
         <div class="panel">
           <h2 data-i18n="analysisResult">分析结果</h2>
-          <div id="review"></div>
+          <div id="review"><p class="status" data-i18n="analysisResultHint">这里显示股票池行情分析或每日复盘结果。</p></div>
         </div>
         <div class="panel">
           <h2 data-i18n="backtestTool">MA/成交量回测</h2>
@@ -255,6 +256,7 @@ def index_html() -> str:
         signals: "信号",
         tradeHints: "交易提示",
         analysisResult: "分析结果",
+        analysisResultHint: "这里显示股票池行情分析或每日复盘结果。",
         backtest: "回测",
         backtestTool: "MA/成交量回测",
         backtestHint: "使用左侧输入框中的股票代码，按日 K 线跑一套固定的 MA/成交量趋势规则。",
@@ -267,6 +269,7 @@ def index_html() -> str:
         noData: "暂无数据。",
         noTradeHints: "暂无交易提示。关注股只进入观察名单，建仓或生成持仓提示后才会出现交易提示。",
         generatedSignals: "已生成持仓提示",
+        operationDoneTemplate: "{action}: {count}",
         poolAnalysisFailed: "股票池分析失败",
         mcpToolPlan: "MCP 工具计划",
         marketDataSource: "行情源",
@@ -359,6 +362,7 @@ def index_html() -> str:
         signals: "Signals",
         tradeHints: "Trade Hints",
         analysisResult: "Analysis Result",
+        analysisResultHint: "Pool quote analysis and daily review results appear here.",
         backtest: "Backtest",
         backtestTool: "MA/Volume Backtest",
         backtestHint: "Uses the symbol in the left input and runs a fixed MA/volume trend rule over daily K-line bars.",
@@ -371,6 +375,7 @@ def index_html() -> str:
         noData: "No data yet.",
         noTradeHints: "No trade hints yet. Watched symbols stay on the watchlist; hints appear after you create holdings or generate holding hints.",
         generatedSignals: "Generated holding hints",
+        operationDoneTemplate: "{action}: {count}",
         poolAnalysisFailed: "Pool analysis failed",
         mcpToolPlan: "MCP tool plan",
         marketDataSource: "Market source",
@@ -618,11 +623,14 @@ def index_html() -> str:
         body: JSON.stringify({source: marketSource(), persist: true, include_technical: false, pool_id: selectedPoolId()})
       });
       await refreshAll();
-      document.getElementById("review").innerHTML = `<p class="summary">${t("generatedSignals")}: ${result.generated_signals}</p>`;
+      document.getElementById("actionStatus").textContent = t("operationDoneTemplate")
+        .replace("{action}", t("generatedSignals"))
+        .replace("{count}", result.generated_signals);
     }
     async function analyzePool() {
       const poolId = selectedPoolId();
       if (!poolId) return;
+      document.getElementById("actionStatus").textContent = "";
       document.getElementById("review").innerHTML = `<p class="summary">${t("checking")}</p>`;
       try {
         cachedReview = await api(`/stock-pools/${poolId}/market-analysis`, {
@@ -636,10 +644,12 @@ def index_html() -> str:
       }
     }
     async function dailyReview() {
+      document.getElementById("actionStatus").textContent = "";
       cachedReview = await api(`/reports/daily-review?pool_id=${selectedPoolId() || ""}`);
       renderDailyReview(cachedReview);
     }
     async function runBacktest() {
+      document.getElementById("actionStatus").textContent = "";
       const symbol = document.getElementById("symbol").value || "600519";
       cachedBacktest = await api(`/backtests/${encodeURIComponent(symbol)}`, {
         method: "POST",

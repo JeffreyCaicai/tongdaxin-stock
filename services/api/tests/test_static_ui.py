@@ -73,11 +73,25 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("MA/成交量回测", html)
         self.assertIn("交易提示", html)
         self.assertIn("分析结果", html)
+        self.assertIn("analysisResultHint", html)
+        self.assertIn('id="actionStatus"', html)
         self.assertIn("priority: \"优先级\"", html)
         self.assertIn("status: \"状态\"", html)
         self.assertIn("watching: \"观察中\"", html)
         self.assertIn("function priorityLabel", html)
         self.assertIn("noTradeHints", html)
+
+    def test_generate_signals_uses_action_status_not_analysis_result(self) -> None:
+        html = index_html()
+
+        self.assertIn(
+            'document.getElementById("actionStatus").textContent = t("operationDoneTemplate")',
+            html,
+        )
+        self.assertNotIn(
+            'document.getElementById("review").innerHTML = `<p class="summary">${t("generatedSignals")}',
+            html,
+        )
 
     def test_backtest_panel_explains_strategy_rules(self) -> None:
         html = index_html()
