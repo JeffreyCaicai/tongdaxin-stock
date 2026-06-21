@@ -77,13 +77,6 @@ def index_html() -> str:
     .pool-field { flex: 0 1 220px; }
     .pool-field select,
     .pool-field input { width: 100%; }
-    .pool-create {
-      display: flex;
-      gap: 8px;
-      align-items: flex-end;
-      flex: 0 1 430px;
-    }
-    .pool-create .pool-field { flex: 1 1 280px; }
     .pool-actions { margin-bottom: 16px; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 14px; }
     .panel {
@@ -112,10 +105,8 @@ def index_html() -> str:
       header { align-items: flex-start; flex-direction: column; }
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid #d9ded4; }
-      .pool-bar,
-      .pool-create { display: grid; grid-template-columns: 1fr; }
-      .pool-field,
-      .pool-create { width: 100%; }
+      .pool-bar { display: grid; grid-template-columns: 1fr; }
+      .pool-field { width: 100%; }
       .grid { grid-template-columns: 1fr; }
     }
   </style>
@@ -159,13 +150,6 @@ def index_html() -> str:
         <div class="pool-field">
           <label for="poolSelect" data-i18n="selectedPool">当前股票池</label>
           <select id="poolSelect" onchange="setSelectedPool(this.value)"></select>
-        </div>
-        <div class="pool-create">
-          <div class="pool-field">
-            <label for="newPoolName" data-i18n="newPoolName">新股票池</label>
-            <input id="newPoolName" data-i18n-placeholder="poolNamePlaceholder" placeholder="例如：短线观察">
-          </div>
-          <button class="secondary" onclick="createPool()" data-i18n="createPool">创建股票池</button>
         </div>
         <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
       </div>
@@ -250,9 +234,6 @@ def index_html() -> str:
         runBacktest: "MA/成交量回测",
         holdings: "持仓",
         selectedPool: "当前股票池",
-        newPoolName: "新股票池",
-        poolNamePlaceholder: "例如：短线观察",
-        createPool: "创建股票池",
         poolMembers: "股票池",
         poolHint: "这里是你的关注名单，行情分析范围由所选股票池决定。",
         signals: "信号",
@@ -368,9 +349,6 @@ def index_html() -> str:
         runBacktest: "MA/Volume Backtest",
         holdings: "Holdings",
         selectedPool: "Current Pool",
-        newPoolName: "New Pool",
-        poolNamePlaceholder: "Example: Swing Watch",
-        createPool: "Create Pool",
         poolMembers: "Stock Pool",
         poolHint: "This is your watchlist. The selected stock pool controls the quote analysis scope.",
         signals: "Signals",
@@ -587,18 +565,6 @@ def index_html() -> str:
     async function checkHealth() {
       const health = await api("/health");
       document.getElementById("health").textContent = health.mode ? `${t("running")} (${t("mode")}: ${health.mode})` : t("running");
-    }
-    async function createPool() {
-      const name = document.getElementById("newPoolName").value.trim();
-      if (!name) return;
-      const pool = await api("/stock-pools", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({name})
-      });
-      localStorage.setItem("tdx_pool_id", String(pool.id));
-      document.getElementById("newPoolName").value = "";
-      await refreshAll();
     }
     async function addSymbolToPool() {
       const result = await ensureSymbolInPool();

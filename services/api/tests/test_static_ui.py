@@ -56,7 +56,6 @@ class StaticUiTests(unittest.TestCase):
         html = index_html()
 
         self.assertIn('class="pool-bar"', html)
-        self.assertIn('class="pool-create"', html)
         self.assertIn('class="toolbar pool-actions"', html)
         self.assertIn('onclick="analyzePool()"', html)
         self.assertIn("function analyzePool()", html)
@@ -64,6 +63,9 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("marketDataSource", html)
         self.assertIn("renderPoolAnalysis", html)
         self.assertIn('onclick="generateSignals()"', html)
+        self.assertNotIn('id="newPoolName"', html)
+        self.assertNotIn('onclick="createPool()"', html)
+        self.assertNotIn("function createPool()", html)
 
     def test_stock_pool_workflow_labels_are_user_facing(self) -> None:
         html = index_html()
