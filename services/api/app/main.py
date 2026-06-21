@@ -15,6 +15,7 @@ from .csv_io import (
     rows_to_csv,
 )
 from .database import get_db, init_db
+from .decision_engine import generate_stock_pool_decision_engine
 from .indicators import calculate_indicator_snapshot
 from .market_data import MarketDataError, get_market_data_provider, search_stock_candidates
 from .mcp_tools import McpToolError, call_eltdx_mcp_tool, list_eltdx_mcp_tools
@@ -81,6 +82,7 @@ from .schemas import (
     SignalReviewOut,
     StockSearchOut,
     StockPoolChanAnalysisRequest,
+    StockPoolDecisionEngineRequest,
     StockPoolMarketAnalysisRequest,
     StockPoolMcpAnalysisRequest,
     StockPoolCreate,
@@ -1105,6 +1107,78 @@ def api_analyze_stock_pool_with_chan(
         source=payload.source,
         period=payload.period,
         failed_symbols=failed_symbols,
+        max_symbols=payload.max_symbols,
+    )
+    return _save_report(db, report=report, persist=payload.persist)
+
+
+@app.post("/stock-pools/{pool_id}/decision-engine", response_model=ReportOut)
+def api_analyze_stock_pool_with_decision_engine(
+    pool_id: int,
+    payload: StockPoolDecisionEngineRequest,
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    pool = get_stock_pool(db, pool_id)
+    if pool is None:
+        raise HTTPException(status_code=404, detail="Stock pool not found")
+
+    watchlist = list_watchlist(db, pool_id=pool_id)
+    symbols = [
+        normalize_symbol(str(item["symbol"]))
+        for item in watchlist
+    ][: payload.max_symbols]
+    symbol_set = set(symbols)
+    quotes: dict[str, dict] = {}
+    kline_by_symbol: dict[str, list[dict]] = {}
+    failed_quote_symbols: list[str] = []
+    failed_kline_symbols: list[str] = []
+    watchlist_by_symbol = {
+        normalize_symbol(str(item["symbol"])): item for item in watchlist
+    }
+
+    for symbol in symbols:
+        normalized_symbol = normalize_symbol(symbol)
+        try:
+            quote = _fetch_quote_and_cache(
+                db,
+                symbol=normalized_symbol,
+                source=payload.source,
+            )
+        except HTTPException:
+            failed_quote_symbols.append(normalized_symbol)
+        else:
+            quotes[normalized_symbol] = quote
+            watchlist_item = watchlist_by_symbol.get(normalized_symbol)
+            if watchlist_item and quote.get("name") and not watchlist_item.get("name"):
+                update_watchlist_item(db, int(watchlist_item["id"]), {"name": quote["name"]})
+
+        try:
+            kline = _fetch_kline_and_cache(
+                db,
+                symbol=normalized_symbol,
+                source=payload.source,
+                period=payload.period,
+                limit=payload.kline_limit,
+            )
+        except HTTPException:
+            failed_kline_symbols.append(normalized_symbol)
+            continue
+        kline_by_symbol[normalized_symbol] = kline["bars"]
+
+    refreshed_watchlist = list_watchlist(db, pool_id=pool_id)
+    report = generate_stock_pool_decision_engine(
+        pool=pool,
+        watchlist=refreshed_watchlist,
+        holdings=filter_rows_by_symbols(
+            latest_by_symbol(list_holdings(db)), symbol_set
+        ),
+        quotes=quotes,
+        kline_by_symbol=kline_by_symbol,
+        source=payload.source,
+        period=payload.period,
+        horizon_days=payload.horizon_days,
+        failed_quote_symbols=failed_quote_symbols,
+        failed_kline_symbols=failed_kline_symbols,
         max_symbols=payload.max_symbols,
     )
     return _save_report(db, report=report, persist=payload.persist)

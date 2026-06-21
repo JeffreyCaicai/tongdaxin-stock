@@ -242,6 +242,7 @@ def index_html() -> str:
     </aside>
     <section>
       <div class="action-bar toolbar pool-actions">
+        <button onclick="runDecisionEngine()" data-i18n="runDecisionEngine">持仓决策引擎</button>
         <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
         <button class="secondary" onclick="runChanAnalysis()" data-i18n="runChanAnalysis">缠论结构分析</button>
         <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">生成复盘</button>
@@ -318,6 +319,11 @@ def index_html() -> str:
         mockSourceHint: "当前使用演示行情，名称和价格不代表真实市场。",
         officialSourceHint: "当前使用通达信官方 Token 数据源。",
         realSourceHint: "当前使用通达信/真实行情源。若通达信 7709 连接失败，可临时切换 Eastmoney 兜底。",
+        runDecisionEngine: "持仓决策引擎",
+        decisionEngineFailed: "持仓决策引擎分析失败",
+        decisionEngineModel: "决策模型",
+        horizonDays: "目标周期",
+        scenarioCounts: "情景分布",
         analyzePool: "分析股票池行情",
         runChanAnalysis: "缠论结构分析",
         chanAnalysisFailed: "缠论结构分析失败",
@@ -394,6 +400,12 @@ def index_html() -> str:
         message: "信息",
         fetched_at: "拉取时间",
         strength: "强度",
+        decision: "建议",
+        up_probability: "上涨概率",
+        range_probability: "震荡概率",
+        down_probability: "下跌概率",
+        pnl_pct: "持仓盈亏",
+        evidence_summary: "关键证据",
         current_price: "现价",
         market_value: "持仓市值",
         estimated_pnl: "预计盈亏",
@@ -404,7 +416,7 @@ def index_html() -> str:
         total_estimated_pnl_pct: "总收益率",
         save: "保存",
         reasons: "原因",
-        next_check: "下一步检查",
+        next_check: "下一步观察",
         signal_type: "信号类型",
         action: "动作",
         risk_level: "风险",
@@ -461,6 +473,11 @@ def index_html() -> str:
         mockSourceHint: "Demo quotes are synthetic and do not represent the real market.",
         officialSourceHint: "Using the official Tongdaxin Token source.",
         realSourceHint: "Using Tongdaxin or a real market data source. If Tongdaxin 7709 fails, switch to Eastmoney fallback.",
+        runDecisionEngine: "Position Decision Engine",
+        decisionEngineFailed: "Position decision engine failed",
+        decisionEngineModel: "Decision model",
+        horizonDays: "Horizon",
+        scenarioCounts: "Scenario mix",
         analyzePool: "Analyze Pool Quotes",
         runChanAnalysis: "Chan Structure",
         chanAnalysisFailed: "Chan structure analysis failed",
@@ -537,6 +554,12 @@ def index_html() -> str:
         message: "Message",
         fetched_at: "Fetched At",
         strength: "Strength",
+        decision: "Decision",
+        up_probability: "Up Prob.",
+        range_probability: "Range Prob.",
+        down_probability: "Down Prob.",
+        pnl_pct: "Position P/L",
+        evidence_summary: "Key Evidence",
         current_price: "Current Price",
         market_value: "Market Value",
         estimated_pnl: "Estimated P/L",
@@ -577,6 +600,13 @@ def index_html() -> str:
         reduce_or_watch: "减仓/观察",
         breakout_watch: "突破观察",
         hold_or_plan_add: "持有/计划加仓",
+        risk_review: "风险复核",
+        position_review: "仓位复核",
+        wait_confirm: "等待确认",
+        avoid_watch: "暂缓观察",
+        up: "上涨",
+        range: "震荡",
+        down: "下跌",
         low: "低",
         medium: "中",
         high: "高",
@@ -626,6 +656,13 @@ def index_html() -> str:
         reduce_or_watch: "Reduce/watch",
         breakout_watch: "Breakout watch",
         hold_or_plan_add: "Hold/plan add",
+        risk_review: "Risk review",
+        position_review: "Position review",
+        wait_confirm: "Wait for confirmation",
+        avoid_watch: "Pause watch",
+        up: "Up",
+        range: "Range",
+        down: "Down",
         low: "Low",
         medium: "Medium",
         high: "High",
@@ -766,6 +803,29 @@ def index_html() -> str:
       const selected = cachedPools.find(pool => pool.is_default) || cachedPools[0];
       const value = selected ? selected.id : localStorage.getItem("tdx_pool_id");
       return value ? Number(value) : null;
+    }
+    async function runDecisionEngine() {
+      const poolId = selectedPoolId();
+      if (!poolId) return;
+      document.getElementById("actionStatus").textContent = "";
+      document.getElementById("review").innerHTML = `<p class="summary">${t("checking")}</p>`;
+      try {
+        cachedReview = await api(`/stock-pools/${poolId}/decision-engine`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            source: marketSource(),
+            period: "daily",
+            persist: true,
+            max_symbols: 30,
+            kline_limit: 240,
+            horizon_days: 20
+          })
+        });
+        renderDecisionEngine(cachedReview);
+      } catch (error) {
+        document.getElementById("review").innerHTML = `<p class="status">${t("decisionEngineFailed")}: ${escapeHtml(error.message)}</p>`;
+      }
     }
     async function analyzePool() {
       const poolId = selectedPoolId();
@@ -1109,6 +1169,10 @@ def index_html() -> str:
         renderChanAnalysis(report);
         return;
       }
+      if (payload.report_type === "stock_pool_decision_engine") {
+        renderDecisionEngine(report);
+        return;
+      }
       const quality = payload.data_quality || {};
       const focusKeys = payload.next_session_focus_keys || ["review_high_risk", "check_data_quality", "compare_with_thesis"];
       const summary = t("reviewedTemplate")
@@ -1245,6 +1309,60 @@ def index_html() -> str:
         ])}</div>
       `;
     }
+    function renderDecisionEngine(report) {
+      const payload = report.payload || report;
+      const quality = payload.data_quality || {};
+      const counts = payload.scenario_counts || {};
+      const scenarioCounts = ["up", "range", "down"]
+        .map(key => `${enumLabel(key)} ${counts[key] ?? 0}`)
+        .join(", ");
+      const rows = (payload.items || []).map(item => {
+        const probabilities = item.probabilities || {};
+        const decision = item.decision || {};
+        const position = item.position || {};
+        return {
+          symbol: item.symbol,
+          name: item.name || "",
+          current_price: formatOptionalPrice(item.current_price),
+          up_probability: formatProbability(probabilities.up),
+          range_probability: formatProbability(probabilities.range),
+          down_probability: formatProbability(probabilities.down),
+          decision: enumLabel(decision.key) || decision.label || "",
+          risk_level: enumLabel(decision.risk_level),
+          confidence: enumLabel(decision.confidence),
+          pnl_pct: formatPercent(position.pnl_pct),
+          evidence_summary: item.evidence_summary || "",
+          next_check: decision.next_check || ""
+        };
+      });
+      const failedQuotes = quality.failed_quote_symbols || [];
+      const failedKlines = quality.failed_kline_symbols || [];
+      document.getElementById("review").innerHTML = `
+        <p class="summary">${escapeHtml(payload.summary || "")}</p>
+        <div class="metric-grid" style="margin-top:10px">
+          <div class="metric"><b>${t("decisionEngineModel")}</b>${escapeHtml(payload.tool_plan?.model || "-")}</div>
+          <div class="metric"><b>${t("horizonDays")}</b>${escapeHtml(String(payload.scope?.horizon_days || "-"))}</div>
+          <div class="metric"><b>${t("scenarioCounts")}</b>${escapeHtml(scenarioCounts || "-")}</div>
+          <div class="metric"><b>${t("failedSymbols")}</b>${escapeHtml([...failedQuotes, ...failedKlines].join(", ") || "-")}</div>
+        </div>
+        <div style="margin-top:12px">${table(rows, [
+          "symbol",
+          "name",
+          "current_price",
+          "up_probability",
+          "range_probability",
+          "down_probability",
+          "decision",
+          "risk_level",
+          "confidence",
+          "pnl_pct",
+          "evidence_summary",
+          "next_check"
+        ])}</div>
+        <p class="status" style="margin-top:12px">${t("nextSteps")}</p>
+        <ul>${(payload.next_steps || []).map(step => `<li>${escapeHtml(step)}</li>`).join("")}</ul>
+      `;
+    }
     function renderBacktest(result) {
       const metrics = result.result.metrics;
       const rules = result.result.rules || {};
@@ -1299,6 +1417,11 @@ def index_html() -> str:
       if (value === null || value === undefined || value === "") return "";
       const number = Number(value);
       return Number.isFinite(number) ? `${number.toFixed(2)}%` : "";
+    }
+    function formatProbability(value) {
+      if (value === null || value === undefined || value === "") return "";
+      const number = Number(value);
+      return Number.isFinite(number) ? `${(number * 100).toFixed(1)}%` : "";
     }
     function pnlClass(value) {
       const number = Number(value);

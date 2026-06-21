@@ -62,6 +62,12 @@ class StaticUiTests(unittest.TestCase):
         html = index_html()
 
         self.assertIn('class="action-bar toolbar pool-actions"', html)
+        self.assertIn('onclick="runDecisionEngine()"', html)
+        self.assertIn("function runDecisionEngine()", html)
+        self.assertIn("/decision-engine", html)
+        self.assertIn("renderDecisionEngine", html)
+        self.assertIn("stock_pool_decision_engine", html)
+        self.assertIn("formatProbability", html)
         self.assertIn('onclick="analyzePool()"', html)
         self.assertIn("function analyzePool()", html)
         self.assertIn("/market-analysis", html)

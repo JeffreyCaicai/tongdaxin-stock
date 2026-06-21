@@ -252,6 +252,15 @@ class StockPoolChanAnalysisRequest(BaseModel):
     kline_limit: int = Field(default=240, ge=35, le=1000)
 
 
+class StockPoolDecisionEngineRequest(BaseModel):
+    source: str = "tdx-official"
+    period: str = "daily"
+    persist: bool = True
+    max_symbols: int = Field(default=30, ge=1, le=100)
+    kline_limit: int = Field(default=240, ge=35, le=1000)
+    horizon_days: int = Field(default=20, ge=5, le=120)
+
+
 class IndicatorSnapshotOut(BaseModel):
     symbol: str
     source: str
