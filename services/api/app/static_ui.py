@@ -99,6 +99,10 @@ def index_html() -> str:
     th, td { text-align: left; border-bottom: 1px solid #edf0ea; padding: 8px 6px; vertical-align: top; }
     td { word-break: break-word; }
     th { color: #5a6255; font-weight: 600; }
+    .quantity-input { width: 86px; padding: 6px 8px; }
+    .table-button { padding: 6px 8px; font-size: 12px; }
+    .gain { color: #b42318; }
+    .loss { color: #176b3a; }
     .status { font-size: 13px; color: #5a6255; }
     .summary { background: #f7f8f5; border-radius: 6px; padding: 10px; margin: 0; }
     .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 8px; }
@@ -214,6 +218,8 @@ def index_html() -> str:
         symbol: "股票代码",
         name: "名称",
         quantity: "数量",
+        saveQuantity: "保存数量",
+        quantityUpdated: "已更新持仓数量",
         costPrice: "成本价",
         stopLoss: "止损价",
         takeProfit: "止盈价",
@@ -259,6 +265,7 @@ def index_html() -> str:
         backtestExitRule: "卖出：亏损达到 {stop}% 止损，盈利达到 {take}% 止盈，或收盘价跌破 MA20 且 MA5 < MA20。",
         backtestAssumption: "这是固定规则的历史模拟，不包含滑点、手续费、仓位管理和人工判断。",
         noData: "暂无数据。",
+        quoteMissing: "未取到现价",
         noTradeHints: "暂无交易提示。关注股只进入观察名单，建仓或生成持仓提示后才会出现交易提示。",
         generatedSignals: "已生成持仓提示",
         operationDoneTemplate: "{action}: {count}",
@@ -307,6 +314,11 @@ def index_html() -> str:
         message: "信息",
         fetched_at: "拉取时间",
         strength: "强度",
+        current_price: "现价",
+        market_value: "持仓市值",
+        estimated_pnl: "预计盈亏",
+        estimated_pnl_pct: "盈亏比例",
+        save: "保存",
         reasons: "原因",
         next_check: "下一步检查",
         signal_type: "信号类型",
@@ -330,6 +342,8 @@ def index_html() -> str:
         symbol: "Symbol",
         name: "Name",
         quantity: "Quantity",
+        saveQuantity: "Save Quantity",
+        quantityUpdated: "Holding quantity updated",
         costPrice: "Cost Price",
         stopLoss: "Stop Loss",
         takeProfit: "Take Profit",
@@ -375,6 +389,7 @@ def index_html() -> str:
         backtestExitRule: "Exit: stop loss at {stop}%, take profit at {take}%, or close below MA20 with MA5 < MA20.",
         backtestAssumption: "This is a fixed-rule historical simulation. It does not include slippage, fees, position sizing, or manual judgment.",
         noData: "No data yet.",
+        quoteMissing: "Quote unavailable",
         noTradeHints: "No trade hints yet. Watched symbols stay on the watchlist; hints appear after you create holdings or generate holding hints.",
         generatedSignals: "Generated holding hints",
         operationDoneTemplate: "{action}: {count}",
@@ -423,6 +438,11 @@ def index_html() -> str:
         message: "Message",
         fetched_at: "Fetched At",
         strength: "Strength",
+        current_price: "Current Price",
+        market_value: "Market Value",
+        estimated_pnl: "Estimated P/L",
+        estimated_pnl_pct: "P/L %",
+        save: "Save",
         reasons: "Reasons",
         next_check: "Next Check",
         signal_type: "Signal Type",
@@ -562,6 +582,9 @@ def index_html() -> str:
       currentMarketSource = source;
       localStorage.setItem("tdx_market_source", source);
       renderSourceStatus();
+      refreshAll().catch(error => {
+        document.getElementById("quoteStatus").textContent = error.message;
+      });
     }
     let cachedReview = null;
     let cachedBacktest = null;
@@ -569,6 +592,7 @@ def index_html() -> str:
     let cachedWatchlist = [];
     let cachedHoldings = [];
     let cachedSignals = [];
+    let holdingRenderSeq = 0;
     let autoNameValue = "";
     let nameEditedManually = false;
 
@@ -607,7 +631,7 @@ def index_html() -> str:
       cachedWatchlist = await api(`/watchlist?pool_id=${selectedPoolId() || ""}`);
       renderWatchlist(cachedWatchlist);
       cachedHoldings = await api("/holdings");
-      renderHoldings(cachedHoldings);
+      await renderHoldings(cachedHoldings);
       cachedSignals = await api("/signals");
       renderSignals(cachedSignals);
     }
@@ -669,10 +693,77 @@ def index_html() -> str:
       });
       renderBacktest(cachedBacktest);
     }
-    function renderHoldings(rows) {
+    async function renderHoldings(rows) {
+      const renderSeq = ++holdingRenderSeq;
       const latestRows = latestBySymbol(filterByPoolSymbols(rows));
       document.getElementById("holdingsHint").textContent = t("poolHoldingsHint");
-      document.getElementById("holdings").innerHTML = table(latestRows, ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"]);
+      if (!latestRows.length) {
+        document.getElementById("holdings").innerHTML = table([], ["symbol"]);
+        return;
+      }
+      document.getElementById("holdings").innerHTML = `<p class="status">${t("checking")}</p>`;
+      const enrichedRows = await Promise.all(latestRows.map(enrichHoldingWithQuote));
+      if (renderSeq !== holdingRenderSeq) return;
+      document.getElementById("holdings").innerHTML = holdingsTable(enrichedRows);
+    }
+    async function enrichHoldingWithQuote(row) {
+      const quantity = Number(row.quantity || 0);
+      const costPrice = Number(row.cost_price || 0);
+      try {
+        const quote = await api(`/market/quote/${encodeURIComponent(row.symbol)}?source=${encodeURIComponent(marketSource())}`);
+        const currentPrice = Number(quote.price);
+        const marketValue = quantity * currentPrice;
+        const estimatedPnl = quantity * (currentPrice - costPrice);
+        const estimatedPnlPct = costPrice > 0 ? ((currentPrice - costPrice) / costPrice) * 100 : null;
+        return {
+          ...row,
+          current_price: currentPrice,
+          market_value: marketValue,
+          estimated_pnl: estimatedPnl,
+          estimated_pnl_pct: estimatedPnlPct
+        };
+      } catch (error) {
+        return {
+          ...row,
+          current_price: null,
+          market_value: null,
+          estimated_pnl: null,
+          estimated_pnl_pct: null,
+          quote_error: error.message
+        };
+      }
+    }
+    function holdingsTable(rows) {
+      if (!rows.length) return `<p class="status">${t("noData")}</p>`;
+      const fields = ["symbol", "name", "quantity", "cost_price", "current_price", "market_value", "estimated_pnl", "estimated_pnl_pct", "save"];
+      const head = fields.map(field => `<th>${escapeHtml(t(field))}</th>`).join("");
+      const body = rows.map(row => `
+        <tr>
+          <td>${escapeHtml(row.symbol)}</td>
+          <td>${escapeHtml(row.name || "")}</td>
+          <td><input class="quantity-input" id="holding-qty-${Number(row.id)}" type="number" min="0" step="1" value="${escapeHtml(row.quantity ?? 0)}"></td>
+          <td>${escapeHtml(formatOptionalPrice(row.cost_price))}</td>
+          <td>${escapeHtml(formatOptionalPrice(row.current_price) || t("quoteMissing"))}</td>
+          <td>${escapeHtml(formatMoney(row.market_value))}</td>
+          <td class="${pnlClass(row.estimated_pnl)}">${escapeHtml(formatMoney(row.estimated_pnl))}</td>
+          <td class="${pnlClass(row.estimated_pnl)}">${escapeHtml(formatPercent(row.estimated_pnl_pct))}</td>
+          <td><button class="secondary table-button" onclick="saveHoldingQuantity(${Number(row.id)})">${t("save")}</button></td>
+        </tr>
+      `).join("");
+      return `<div class="table-scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+    }
+    async function saveHoldingQuantity(holdingId) {
+      const input = document.getElementById(`holding-qty-${holdingId}`);
+      const quantity = Number(input?.value);
+      if (!Number.isFinite(quantity) || quantity < 0) return;
+      const updated = await api(`/holdings/${holdingId}`, {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({quantity})
+      });
+      cachedHoldings = cachedHoldings.map(row => Number(row.id) === Number(holdingId) ? updated : row);
+      document.getElementById("actionStatus").textContent = `${t("quantityUpdated")}: ${updated.symbol} ${updated.quantity}`;
+      await renderHoldings(cachedHoldings);
     }
     function renderSignals(rows) {
       const view = document.getElementById("signalView").value;
@@ -907,11 +998,28 @@ def index_html() -> str:
     }
     function formatPrice(value) {
       if (value === null || value === undefined || value === "") return "-";
-      return Number(value).toFixed(2);
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toFixed(2) : "-";
     }
     function formatOptionalPrice(value) {
       if (value === null || value === undefined || value === "") return "";
-      return Number(value).toFixed(3);
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toFixed(3) : "";
+    }
+    function formatMoney(value) {
+      if (value === null || value === undefined || value === "") return "";
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toFixed(2) : "";
+    }
+    function formatPercent(value) {
+      if (value === null || value === undefined || value === "") return "";
+      const number = Number(value);
+      return Number.isFinite(number) ? `${number.toFixed(2)}%` : "";
+    }
+    function pnlClass(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number) || number === 0) return "";
+      return number > 0 ? "gain" : "loss";
     }
     function escapeHtml(value) {
       return String(value ?? "")

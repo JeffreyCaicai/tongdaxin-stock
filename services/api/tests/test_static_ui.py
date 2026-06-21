@@ -120,6 +120,19 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("formatOptionalPrice", html)
         self.assertIn('["symbol", "signal_type", "action", "risk_level", "price", "created_at", "reasons", "next_check"]', html)
 
+    def test_holdings_panel_shows_price_pnl_and_editable_quantity(self) -> None:
+        html = index_html()
+
+        self.assertIn("current_price", html)
+        self.assertIn("market_value", html)
+        self.assertIn("estimated_pnl", html)
+        self.assertIn("estimated_pnl_pct", html)
+        self.assertIn("saveHoldingQuantity", html)
+        self.assertIn('method: "PATCH"', html)
+        self.assertIn('class="quantity-input"', html)
+        self.assertIn("formatMoney", html)
+        self.assertNotIn('table(latestRows, ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"])', html)
+
 
 if __name__ == "__main__":
     unittest.main()
