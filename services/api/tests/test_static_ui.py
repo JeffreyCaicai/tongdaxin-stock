@@ -86,9 +86,9 @@ class StaticUiTests(unittest.TestCase):
     def test_stock_pool_workflow_labels_are_user_facing(self) -> None:
         html = index_html()
 
+        self.assertIn("持仓决策引擎", html)
         self.assertIn("分析股票池行情", html)
         self.assertIn("缠论结构分析", html)
-        self.assertIn("MA/成交量回测", html)
         self.assertIn("加入持仓", html)
         self.assertIn("分析结果", html)
         self.assertIn("analysis-panel", html)
@@ -114,16 +114,16 @@ class StaticUiTests(unittest.TestCase):
         self.assertNotIn('class="panel signals-panel"', html)
         self.assertNotIn('onclick="generateSignals()"', html)
 
-    def test_backtest_panel_explains_strategy_rules(self) -> None:
+    def test_backtest_panel_is_not_rendered_as_primary_ui(self) -> None:
         html = index_html()
 
-        self.assertIn("backtestHint", html)
-        self.assertIn("backtestRuleTitle", html)
-        self.assertIn("backtestEntryRule", html)
-        self.assertIn("backtestExitRule", html)
-        self.assertIn("backtestAssumption", html)
-        self.assertIn("MA20", html)
-        self.assertIn("成交量比", html)
+        self.assertNotIn("MA/成交量回测", html)
+        self.assertNotIn("MA/Volume Backtest", html)
+        self.assertNotIn('class="panel backtest-panel"', html)
+        self.assertNotIn('id="backtest"', html)
+        self.assertNotIn('onclick="runBacktest()"', html)
+        self.assertNotIn("function runBacktest()", html)
+        self.assertNotIn("function renderBacktest", html)
 
     def test_daily_review_renders_detail_tables(self) -> None:
         html = index_html()

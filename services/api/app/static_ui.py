@@ -121,7 +121,6 @@ def index_html() -> str:
     }
     .analysis-panel h2 { font-size: 18px; }
     .analysis-panel .table-scroll table { min-width: 1180px; }
-    .backtest-panel { grid-column: 1 / -1; }
     .panel-subtitle {
       margin: -2px 0 12px;
       color: var(--text-muted);
@@ -186,8 +185,7 @@ def index_html() -> str:
       .metric-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
       .holdings-summary { grid-template-columns: repeat(2, minmax(128px, 1fr)); }
       .grid { grid-template-columns: 1fr; }
-      .analysis-panel,
-      .backtest-panel { grid-column: auto; }
+      .analysis-panel { grid-column: auto; }
     }
     @media (max-width: 840px) {
       header { align-items: flex-start; flex-direction: column; }
@@ -246,7 +244,6 @@ def index_html() -> str:
         <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
         <button class="secondary" onclick="runChanAnalysis()" data-i18n="runChanAnalysis">缠论结构分析</button>
         <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">生成复盘</button>
-        <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">MA/成交量回测</button>
       </div>
       <p class="status" id="actionStatus"></p>
       <div class="grid">
@@ -264,10 +261,6 @@ def index_html() -> str:
           <h2 data-i18n="holdings">持仓</h2>
           <p class="status" id="holdingsHint"></p>
           <div id="holdings"></div>
-        </div>
-        <div class="panel backtest-panel">
-          <h2 data-i18n="backtestTool">MA/成交量回测</h2>
-          <div id="backtest"><p class="status" data-i18n="backtestHint">使用左侧输入框中的股票代码，按日 K 线跑一套固定的 MA/成交量趋势规则。</p></div>
         </div>
       </div>
     </section>
@@ -340,7 +333,6 @@ def index_html() -> str:
         stroke_count: "笔数",
         center_count: "中枢数",
         dailyReview: "生成复盘",
-        runBacktest: "MA/成交量回测",
         holdings: "持仓",
         poolMembers: "股票池",
         poolHint: "这里是你的关注名单，行情分析范围由个人股票池决定。",
@@ -348,15 +340,6 @@ def index_html() -> str:
         analysisResult: "分析结果",
         analysisResultFocus: "这里优先显示股票池级分析、缠论结构和每日复盘明细。",
         analysisResultHint: "这里显示股票池行情分析或每日复盘结果。",
-        backtest: "回测",
-        backtestTool: "MA/成交量回测",
-        backtestHint: "使用左侧输入框中的股票代码，按日 K 线跑一套固定的 MA/成交量趋势规则。",
-        backtestStrategy: "策略",
-        backtestDataWindow: "K线数量",
-        backtestRuleTitle: "当前规则",
-        backtestEntryRule: "买入：收盘价站上 MA20，且 MA5 ≥ MA20，趋势不为空头，成交量比 ≥ 1。",
-        backtestExitRule: "卖出：亏损达到 {stop}% 止损，盈利达到 {take}% 止盈，或收盘价跌破 MA20 且 MA5 < MA20。",
-        backtestAssumption: "这是固定规则的历史模拟，不包含滑点、手续费、仓位管理和人工判断。",
         noData: "暂无数据。",
         quoteMissing: "未取到现价",
         poolAnalysisFailed: "股票池分析失败",
@@ -384,13 +367,6 @@ def index_html() -> str:
         focus_review_high_risk: "优先复核高风险信号。",
         focus_check_data_quality: "确认行情/指标数据正常后再参考信号排序。",
         focus_compare_with_thesis: "把任何行动信号和原始买入理由再对照一次。",
-        totalTrades: "交易次数",
-        winRate: "胜率",
-        riskReward: "盈亏比",
-        totalReturn: "总收益率",
-        maxDrawdown: "最大回撤",
-        averageWin: "平均盈利",
-        averageLoss: "平均亏损",
         mode: "模式",
         id: "ID",
         priority: "优先级",
@@ -494,7 +470,6 @@ def index_html() -> str:
         stroke_count: "Strokes",
         center_count: "Centers",
         dailyReview: "Create Review",
-        runBacktest: "MA/Volume Backtest",
         holdings: "Holdings",
         poolMembers: "Stock Pool",
         poolHint: "This is your watchlist. The personal stock pool controls the quote analysis scope.",
@@ -502,15 +477,6 @@ def index_html() -> str:
         analysisResult: "Analysis Result",
         analysisResultFocus: "Pool analysis, Chan structure, and daily review details appear here first.",
         analysisResultHint: "Pool quote analysis and daily review results appear here.",
-        backtest: "Backtest",
-        backtestTool: "MA/Volume Backtest",
-        backtestHint: "Uses the symbol in the left input and runs a fixed MA/volume trend rule over daily K-line bars.",
-        backtestStrategy: "Strategy",
-        backtestDataWindow: "Bars",
-        backtestRuleTitle: "Current rules",
-        backtestEntryRule: "Entry: close is above MA20, MA5 >= MA20, trend is not bearish, and volume ratio >= 1.",
-        backtestExitRule: "Exit: stop loss at {stop}%, take profit at {take}%, or close below MA20 with MA5 < MA20.",
-        backtestAssumption: "This is a fixed-rule historical simulation. It does not include slippage, fees, position sizing, or manual judgment.",
         noData: "No data yet.",
         quoteMissing: "Quote unavailable",
         poolAnalysisFailed: "Pool analysis failed",
@@ -538,13 +504,6 @@ def index_html() -> str:
         focus_review_high_risk: "Review high-risk signals first.",
         focus_check_data_quality: "Confirm quote and indicator data before trusting signal rankings.",
         focus_compare_with_thesis: "Compare every action signal with the original position thesis.",
-        totalTrades: "Total trades",
-        winRate: "Win rate",
-        riskReward: "Risk/reward",
-        totalReturn: "Total return",
-        maxDrawdown: "Max drawdown",
-        averageWin: "Average win",
-        averageLoss: "Average loss",
         mode: "mode",
         id: "ID",
         priority: "Priority",
@@ -745,7 +704,6 @@ def index_html() -> str:
       });
     }
     let cachedReview = null;
-    let cachedBacktest = null;
     let cachedPools = [];
     let cachedWatchlist = [];
     let cachedHoldings = [];
@@ -869,16 +827,6 @@ def index_html() -> str:
       document.getElementById("actionStatus").textContent = "";
       cachedReview = await api(`/reports/daily-review?pool_id=${selectedPoolId() || ""}`);
       renderDailyReview(cachedReview);
-    }
-    async function runBacktest() {
-      document.getElementById("actionStatus").textContent = "";
-      const symbol = document.getElementById("symbol").value || "600519";
-      cachedBacktest = await api(`/backtests/${encodeURIComponent(symbol)}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({source: marketSource(), limit: 160, persist: true})
-      });
-      renderBacktest(cachedBacktest);
     }
     async function renderHoldings(rows) {
       const renderSeq = ++holdingRenderSeq;
@@ -1363,41 +1311,6 @@ def index_html() -> str:
         <ul>${(payload.next_steps || []).map(step => `<li>${escapeHtml(step)}</li>`).join("")}</ul>
       `;
     }
-    function renderBacktest(result) {
-      const metrics = result.result.metrics;
-      const rules = result.result.rules || {};
-      const stop = rules.stop_loss_pct ?? result.config?.stop_loss_pct ?? 6;
-      const take = rules.take_profit_pct ?? result.config?.take_profit_pct ?? 12;
-      document.getElementById("backtest").innerHTML = `
-        <p class="summary">${t("backtestStrategy")}: ${escapeHtml(result.strategy_name || result.result.strategy_name || "-")}</p>
-        <div class="metric-grid" style="margin-top:10px">
-          <div class="metric"><b>${t("marketDataSource")}</b>${escapeHtml(result.source || "-")}</div>
-          <div class="metric"><b>${t("backtestDataWindow")}</b>${result.result.bar_count ?? "-"}</div>
-        </div>
-        <p class="status" style="margin-top:12px">${t("backtestRuleTitle")}</p>
-        <ul>
-          <li>${t("backtestEntryRule")}</li>
-          <li>${t("backtestExitRule").replace("{stop}", stop).replace("{take}", take)}</li>
-        </ul>
-        <p class="status">${t("backtestAssumption")}</p>
-        <div class="metric-grid">
-          ${metric("totalTrades", metrics.total_trades)}
-          ${metric("winRate", percent(metrics.win_rate))}
-          ${metric("riskReward", metrics.risk_reward_ratio ?? "-")}
-          ${metric("totalReturn", percent(metrics.total_return_pct / 100))}
-          ${metric("maxDrawdown", `${metrics.max_drawdown_pct}%`)}
-          ${metric("averageWin", `${metrics.average_win_pct}%`)}
-          ${metric("averageLoss", `${metrics.average_loss_pct}%`)}
-        </div>
-      `;
-    }
-    function metric(labelKey, value) {
-      return `<div class="metric"><b>${t(labelKey)}</b>${value}</div>`;
-    }
-    function percent(value) {
-      if (value === null || value === undefined) return "-";
-      return `${(Number(value) * 100).toFixed(2)}%`;
-    }
     function formatPrice(value) {
       if (value === null || value === undefined || value === "") return "-";
       const number = Number(value);
@@ -1468,7 +1381,6 @@ def index_html() -> str:
       renderWatchlist(cachedWatchlist);
       renderHoldings(cachedHoldings);
       if (cachedReview) renderDailyReview(cachedReview);
-      if (cachedBacktest) renderBacktest(cachedBacktest);
     }
     setLanguage(currentLanguage);
     checkHealth().then(refreshAll).catch(error => {
