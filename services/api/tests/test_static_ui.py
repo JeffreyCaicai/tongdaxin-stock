@@ -130,6 +130,9 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("saveHoldingQuantity", html)
         self.assertIn('method: "PATCH"', html)
         self.assertIn('class="quantity-input"', html)
+        self.assertIn('class="holdings-table"', html)
+        self.assertIn('class="number-cell"', html)
+        self.assertIn("white-space: nowrap", html)
         self.assertIn("formatMoney", html)
         self.assertNotIn('table(latestRows, ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"])', html)
 

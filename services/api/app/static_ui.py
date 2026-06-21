@@ -99,8 +99,14 @@ def index_html() -> str:
     th, td { text-align: left; border-bottom: 1px solid #edf0ea; padding: 8px 6px; vertical-align: top; }
     td { word-break: break-word; }
     th { color: #5a6255; font-weight: 600; }
-    .quantity-input { width: 86px; padding: 6px 8px; }
-    .table-button { padding: 6px 8px; font-size: 12px; }
+    .holdings-table th,
+    .holdings-table td { white-space: nowrap; word-break: normal; }
+    .holdings-table .symbol-cell { font-variant-numeric: tabular-nums; }
+    .holdings-table .name-cell { min-width: 72px; white-space: normal; }
+    .holdings-table .number-cell { text-align: right; font-variant-numeric: tabular-nums; }
+    .holdings-table .action-cell { text-align: center; }
+    .quantity-input { width: 72px; min-width: 72px; padding: 6px 7px; text-align: right; }
+    .table-button { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
     .gain { color: #b42318; }
     .loss { color: #176b3a; }
     .status { font-size: 13px; color: #5a6255; }
@@ -739,18 +745,18 @@ def index_html() -> str:
       const head = fields.map(field => `<th>${escapeHtml(t(field))}</th>`).join("");
       const body = rows.map(row => `
         <tr>
-          <td>${escapeHtml(row.symbol)}</td>
-          <td>${escapeHtml(row.name || "")}</td>
-          <td><input class="quantity-input" id="holding-qty-${Number(row.id)}" type="number" min="0" step="1" value="${escapeHtml(row.quantity ?? 0)}"></td>
-          <td>${escapeHtml(formatOptionalPrice(row.cost_price))}</td>
-          <td>${escapeHtml(formatOptionalPrice(row.current_price) || t("quoteMissing"))}</td>
-          <td>${escapeHtml(formatMoney(row.market_value))}</td>
-          <td class="${pnlClass(row.estimated_pnl)}">${escapeHtml(formatMoney(row.estimated_pnl))}</td>
-          <td class="${pnlClass(row.estimated_pnl)}">${escapeHtml(formatPercent(row.estimated_pnl_pct))}</td>
-          <td><button class="secondary table-button" onclick="saveHoldingQuantity(${Number(row.id)})">${t("save")}</button></td>
+          <td class="symbol-cell">${escapeHtml(row.symbol)}</td>
+          <td class="name-cell">${escapeHtml(row.name || "")}</td>
+          <td class="number-cell"><input class="quantity-input" id="holding-qty-${Number(row.id)}" type="number" min="0" step="1" value="${escapeHtml(row.quantity ?? 0)}"></td>
+          <td class="number-cell">${escapeHtml(formatOptionalPrice(row.cost_price))}</td>
+          <td class="number-cell">${escapeHtml(formatOptionalPrice(row.current_price) || t("quoteMissing"))}</td>
+          <td class="number-cell">${escapeHtml(formatMoney(row.market_value))}</td>
+          <td class="number-cell ${pnlClass(row.estimated_pnl)}">${escapeHtml(formatMoney(row.estimated_pnl))}</td>
+          <td class="number-cell ${pnlClass(row.estimated_pnl)}">${escapeHtml(formatPercent(row.estimated_pnl_pct))}</td>
+          <td class="action-cell"><button class="secondary table-button" onclick="saveHoldingQuantity(${Number(row.id)})">${t("save")}</button></td>
         </tr>
       `).join("");
-      return `<div class="table-scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+      return `<div class="table-scroll"><table class="holdings-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
     }
     async function saveHoldingQuantity(holdingId) {
       const input = document.getElementById(`holding-qty-${holdingId}`);
