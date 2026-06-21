@@ -170,7 +170,7 @@ def index_html() -> str:
       <div class="toolbar pool-actions">
         <button class="secondary" onclick="generateSignals()" data-i18n="generatePoolSignals">生成持仓提示</button>
         <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">生成复盘</button>
-        <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">回测当前股票</button>
+        <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">MA/成交量回测</button>
       </div>
       <div class="grid">
         <div class="panel">
@@ -201,8 +201,8 @@ def index_html() -> str:
           <div id="review"></div>
         </div>
         <div class="panel">
-          <h2 data-i18n="backtestTool">回测工具</h2>
-          <div id="backtest"></div>
+          <h2 data-i18n="backtestTool">MA/成交量回测</h2>
+          <div id="backtest"><p class="status" data-i18n="backtestHint">使用左侧输入框中的股票代码，按日 K 线跑一套固定的 MA/成交量趋势规则。</p></div>
         </div>
       </div>
     </section>
@@ -244,7 +244,7 @@ def index_html() -> str:
         analyzePool: "分析股票池行情",
         generatePoolSignals: "生成持仓提示",
         dailyReview: "生成复盘",
-        runBacktest: "回测当前股票",
+        runBacktest: "MA/成交量回测",
         holdings: "持仓",
         selectedPool: "当前股票池",
         newPoolName: "新股票池",
@@ -256,7 +256,14 @@ def index_html() -> str:
         tradeHints: "交易提示",
         analysisResult: "分析结果",
         backtest: "回测",
-        backtestTool: "回测工具",
+        backtestTool: "MA/成交量回测",
+        backtestHint: "使用左侧输入框中的股票代码，按日 K 线跑一套固定的 MA/成交量趋势规则。",
+        backtestStrategy: "策略",
+        backtestDataWindow: "K线数量",
+        backtestRuleTitle: "当前规则",
+        backtestEntryRule: "买入：收盘价站上 MA20，且 MA5 ≥ MA20，趋势不为空头，成交量比 ≥ 1。",
+        backtestExitRule: "卖出：亏损达到 {stop}% 止损，盈利达到 {take}% 止盈，或收盘价跌破 MA20 且 MA5 < MA20。",
+        backtestAssumption: "这是固定规则的历史模拟，不包含滑点、手续费、仓位管理和人工判断。",
         noData: "暂无数据。",
         noTradeHints: "暂无交易提示。关注股只进入观察名单，建仓或生成持仓提示后才会出现交易提示。",
         generatedSignals: "已生成持仓提示",
@@ -341,7 +348,7 @@ def index_html() -> str:
         analyzePool: "Analyze Pool Quotes",
         generatePoolSignals: "Generate Holding Hints",
         dailyReview: "Create Review",
-        runBacktest: "Backtest Current Symbol",
+        runBacktest: "MA/Volume Backtest",
         holdings: "Holdings",
         selectedPool: "Current Pool",
         newPoolName: "New Pool",
@@ -353,7 +360,14 @@ def index_html() -> str:
         tradeHints: "Trade Hints",
         analysisResult: "Analysis Result",
         backtest: "Backtest",
-        backtestTool: "Backtest Tool",
+        backtestTool: "MA/Volume Backtest",
+        backtestHint: "Uses the symbol in the left input and runs a fixed MA/volume trend rule over daily K-line bars.",
+        backtestStrategy: "Strategy",
+        backtestDataWindow: "Bars",
+        backtestRuleTitle: "Current rules",
+        backtestEntryRule: "Entry: close is above MA20, MA5 >= MA20, trend is not bearish, and volume ratio >= 1.",
+        backtestExitRule: "Exit: stop loss at {stop}%, take profit at {take}%, or close below MA20 with MA5 < MA20.",
+        backtestAssumption: "This is a fixed-rule historical simulation. It does not include slippage, fees, position sizing, or manual judgment.",
         noData: "No data yet.",
         noTradeHints: "No trade hints yet. Watched symbols stay on the watchlist; hints appear after you create holdings or generate holding hints.",
         generatedSignals: "Generated holding hints",
@@ -803,7 +817,21 @@ def index_html() -> str:
     }
     function renderBacktest(result) {
       const metrics = result.result.metrics;
+      const rules = result.result.rules || {};
+      const stop = rules.stop_loss_pct ?? result.config?.stop_loss_pct ?? 6;
+      const take = rules.take_profit_pct ?? result.config?.take_profit_pct ?? 12;
       document.getElementById("backtest").innerHTML = `
+        <p class="summary">${t("backtestStrategy")}: ${escapeHtml(result.strategy_name || result.result.strategy_name || "-")}</p>
+        <div class="metric-grid" style="margin-top:10px">
+          <div class="metric"><b>${t("marketDataSource")}</b>${escapeHtml(result.source || "-")}</div>
+          <div class="metric"><b>${t("backtestDataWindow")}</b>${result.result.bar_count ?? "-"}</div>
+        </div>
+        <p class="status" style="margin-top:12px">${t("backtestRuleTitle")}</p>
+        <ul>
+          <li>${t("backtestEntryRule")}</li>
+          <li>${t("backtestExitRule").replace("{stop}", stop).replace("{take}", take)}</li>
+        </ul>
+        <p class="status">${t("backtestAssumption")}</p>
         <div class="metric-grid">
           ${metric("totalTrades", metrics.total_trades)}
           ${metric("winRate", percent(metrics.win_rate))}

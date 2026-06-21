@@ -70,7 +70,7 @@ class StaticUiTests(unittest.TestCase):
 
         self.assertIn("分析股票池行情", html)
         self.assertIn("生成持仓提示", html)
-        self.assertIn("回测当前股票", html)
+        self.assertIn("MA/成交量回测", html)
         self.assertIn("交易提示", html)
         self.assertIn("分析结果", html)
         self.assertIn("priority: \"优先级\"", html)
@@ -78,6 +78,17 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("watching: \"观察中\"", html)
         self.assertIn("function priorityLabel", html)
         self.assertIn("noTradeHints", html)
+
+    def test_backtest_panel_explains_strategy_rules(self) -> None:
+        html = index_html()
+
+        self.assertIn("backtestHint", html)
+        self.assertIn("backtestRuleTitle", html)
+        self.assertIn("backtestEntryRule", html)
+        self.assertIn("backtestExitRule", html)
+        self.assertIn("backtestAssumption", html)
+        self.assertIn("MA20", html)
+        self.assertIn("成交量比", html)
 
 
 if __name__ == "__main__":
