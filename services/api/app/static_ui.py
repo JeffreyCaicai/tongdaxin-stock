@@ -179,13 +179,7 @@ def index_html() -> str:
           <div id="watchlist"></div>
         </div>
         <div class="panel">
-          <div class="panel-head">
-            <h2 data-i18n="holdings">持仓</h2>
-            <select class="inline-select" id="holdingScope" onchange="renderHoldings(cachedHoldings)">
-              <option value="current" data-i18n="currentSymbol">当前股票</option>
-              <option value="all" data-i18n="allSymbols">全部股票</option>
-            </select>
-          </div>
+          <h2 data-i18n="holdings">持仓</h2>
           <p class="status" id="holdingsHint"></p>
           <div id="holdings"></div>
         </div>
@@ -193,10 +187,6 @@ def index_html() -> str:
           <div class="panel-head">
             <h2 data-i18n="tradeHints">交易提示</h2>
             <div class="panel-controls">
-              <select class="inline-select" id="signalScope" onchange="renderSignals(cachedSignals)">
-                <option value="current" data-i18n="currentSymbol">当前股票</option>
-                <option value="all" data-i18n="allSymbols">全部股票</option>
-              </select>
               <select class="inline-select" id="signalView" onchange="renderSignals(cachedSignals)">
                 <option value="latest" data-i18n="latestSignals">最新</option>
                 <option value="history" data-i18n="historySignals">历史</option>
@@ -281,16 +271,11 @@ def index_html() -> str:
         updatedHolding: "已更新已有持仓",
         duplicateHoldingNote: "检测到相同股票代码，已更新原持仓，避免重复记录。",
         autoSignalCreated: "已为该股票自动生成最新信号",
-        currentSymbol: "当前股票",
-        allSymbols: "全部股票",
-        currentHoldingsHint: "当前只显示输入框中股票的最新持仓。切换到全部股票可查看股票池。",
-        allHoldingsHint: "正在显示股票池中每只股票最新一条持仓。",
+        poolHoldingsHint: "正在显示当前股票池中每只股票最新一条持仓。",
         latestSignals: "最新",
         historySignals: "历史",
-        currentLatestSignalsHint: "当前只显示输入框中股票的最新交易提示。",
-        currentHistorySignalsHint: "当前只显示输入框中股票的最近历史交易提示。",
-        allLatestSignalsHint: "正在显示股票池中每只股票最新一条交易提示。",
-        allHistorySignalsHint: "正在显示最近保存的全股票池历史交易提示。",
+        poolLatestSignalsHint: "正在显示当前股票池中每只股票最新一条交易提示。",
+        poolHistorySignalsHint: "正在显示当前股票池最近保存的历史交易提示。",
         highRiskSymbols: "高风险股票",
         failedFetchCount: "数据拉取失败数",
         fetchOk: "未发现数据拉取失败",
@@ -383,16 +368,11 @@ def index_html() -> str:
         updatedHolding: "Existing holding updated",
         duplicateHoldingNote: "Same symbol detected; updated the existing holding to avoid duplicates.",
         autoSignalCreated: "A fresh signal was generated for this symbol",
-        currentSymbol: "Current",
-        allSymbols: "All Symbols",
-        currentHoldingsHint: "Showing only the latest holding for the symbol in the input box.",
-        allHoldingsHint: "Showing the latest holding per symbol in the portfolio.",
+        poolHoldingsHint: "Showing the latest holding per symbol in the current stock pool.",
         latestSignals: "Latest",
         historySignals: "History",
-        currentLatestSignalsHint: "Showing only the latest trade hint for the symbol in the input box.",
-        currentHistorySignalsHint: "Showing recent historical trade hints for the symbol in the input box.",
-        allLatestSignalsHint: "Showing the latest trade hint per symbol in the stock pool.",
-        allHistorySignalsHint: "Showing recently saved historical trade hints across the stock pool.",
+        poolLatestSignalsHint: "Showing the latest trade hint per symbol in the current stock pool.",
+        poolHistorySignalsHint: "Showing recent historical trade hints in the current stock pool.",
         highRiskSymbols: "High-risk symbols",
         failedFetchCount: "Failed fetches",
         fetchOk: "No failed data fetches",
@@ -655,22 +635,15 @@ def index_html() -> str:
       renderBacktest(cachedBacktest);
     }
     function renderHoldings(rows) {
-      const scope = document.getElementById("holdingScope").value;
       const latestRows = latestBySymbol(filterByPoolSymbols(rows));
-      const selectedRows = scope === "current" ? filterCurrentSymbol(latestRows) : latestRows;
-      document.getElementById("holdingsHint").textContent = scope === "current" ? t("currentHoldingsHint") : t("allHoldingsHint");
-      document.getElementById("holdings").innerHTML = table(selectedRows, ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"]);
+      document.getElementById("holdingsHint").textContent = t("poolHoldingsHint");
+      document.getElementById("holdings").innerHTML = table(latestRows, ["id", "symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit"]);
     }
     function renderSignals(rows) {
       const view = document.getElementById("signalView").value;
-      const scope = document.getElementById("signalScope").value;
       const poolRows = filterByPoolSymbols(rows);
-      const scopedRows = scope === "current" ? filterCurrentSymbol(poolRows) : poolRows;
-      const selectedRows = view === "latest" ? latestBySymbol(scopedRows) : scopedRows.slice(0, 12);
-      const hintKey = scope === "current"
-        ? (view === "latest" ? "currentLatestSignalsHint" : "currentHistorySignalsHint")
-        : (view === "latest" ? "allLatestSignalsHint" : "allHistorySignalsHint");
-      document.getElementById("signalHint").textContent = t(hintKey);
+      const selectedRows = view === "latest" ? latestBySymbol(poolRows) : poolRows.slice(0, 12);
+      document.getElementById("signalHint").textContent = view === "latest" ? t("poolLatestSignalsHint") : t("poolHistorySignalsHint");
       const mapped = selectedRows.map(row => ({
         ...row,
         signal_type: enumLabel(row.signal_type),
@@ -711,8 +684,6 @@ def index_html() -> str:
     }
     function onSymbolChanged() {
       syncAutoName();
-      renderHoldings(cachedHoldings);
-      renderSignals(cachedSignals);
     }
     function onNameChanged() {
       nameEditedManually = true;
@@ -745,11 +716,6 @@ def index_html() -> str:
     }
     function currentSymbol() {
       return normalizeSymbolText(document.getElementById("symbol").value);
-    }
-    function filterCurrentSymbol(rows) {
-      const symbol = currentSymbol();
-      if (!symbol) return rows;
-      return rows.filter(row => normalizeSymbolText(row.symbol) === symbol);
     }
     function poolSymbols() {
       return new Set(cachedWatchlist.map(row => normalizeSymbolText(row.symbol)));

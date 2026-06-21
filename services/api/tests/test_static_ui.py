@@ -20,17 +20,18 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("tongdaxinSource", html)
         self.assertIn("eastmoneySource", html)
 
-    def test_workbench_defaults_to_current_symbol_scope(self) -> None:
+    def test_workbench_uses_selected_pool_as_primary_scope(self) -> None:
         html = index_html()
 
-        self.assertIn('id="holdingScope"', html)
-        self.assertIn('id="signalScope"', html)
         self.assertIn('id="poolSelect"', html)
         self.assertIn("selectedPoolId", html)
-        self.assertIn('value="current"', html)
-        self.assertIn("currentHoldingsHint", html)
-        self.assertIn("currentLatestSignalsHint", html)
-        self.assertIn("filterCurrentSymbol", html)
+        self.assertIn("poolHoldingsHint", html)
+        self.assertIn("poolLatestSignalsHint", html)
+        self.assertNotIn('id="holdingScope"', html)
+        self.assertNotIn('id="signalScope"', html)
+        self.assertNotIn("currentHoldingsHint", html)
+        self.assertNotIn("currentLatestSignalsHint", html)
+        self.assertNotIn("filterCurrentSymbol", html)
 
     def test_watch_symbol_form_rerenders_and_updates_auto_name(self) -> None:
         html = index_html()
