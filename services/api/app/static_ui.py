@@ -84,28 +84,16 @@ def index_html() -> str:
     button:hover { filter: brightness(0.98); }
     .header-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-    .pool-bar {
-      display: grid;
-      grid-template-columns: minmax(220px, 340px) minmax(0, 1fr);
-      gap: 12px;
-      align-items: end;
-      margin-bottom: 10px;
+    .action-bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: var(--surface);
       padding: 12px;
-    }
-    .pool-field { min-width: 0; }
-    .pool-field select,
-    .pool-field input { width: 100%; }
-    .pool-value {
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 9px 10px;
-      background: var(--surface-muted);
-      min-height: 40px;
-      box-sizing: border-box;
-      font-weight: 600;
     }
     .pool-actions {
       margin: 0;
@@ -187,8 +175,8 @@ def index_html() -> str:
         height: auto;
       }
       section { padding: 16px; }
-      .pool-bar { display: grid; grid-template-columns: 1fr; }
-      .pool-field { width: 100%; }
+      .action-bar { align-items: stretch; }
+      .action-bar button { flex: 1 1 auto; }
       .grid { grid-template-columns: 1fr; }
     }
   </style>
@@ -216,10 +204,10 @@ def index_html() -> str:
   <main>
     <aside>
       <h2 data-i18n="addWatchSymbol">添加关注股</h2>
-      <label data-i18n="symbol">股票代码</label>
-      <input id="symbol" value="600519" oninput="onSymbolChanged()" onblur="hydrateSymbolFromMarket(false)">
-      <label data-i18n="name">名称</label>
-      <input id="name" value="" oninput="onNameChanged()">
+      <label data-i18n="symbolOrName">股票代码或名称</label>
+      <input id="symbol" value="" data-i18n-placeholder="symbolOrNamePlaceholder" placeholder="例如：600519 / 贵州茅台" oninput="onSymbolChanged()" onblur="hydrateSymbolFromMarket(false)">
+      <label data-i18n="nameOptional">名称</label>
+      <input id="name" value="" data-i18n-placeholder="nameOptionalPlaceholder" placeholder="可选，查询后自动填充" oninput="onNameChanged()">
       <div class="toolbar" style="margin-top:14px">
         <button onclick="addSymbolToPool()" data-i18n="addWatchSymbolButton">添加关注</button>
         <button class="secondary" onclick="hydrateSymbolFromMarket(true)" data-i18n="fetchQuote">查询行情</button>
@@ -228,18 +216,12 @@ def index_html() -> str:
       <p class="status" id="quoteStatus"></p>
     </aside>
     <section>
-      <div class="pool-bar">
-        <div class="pool-field">
-          <label data-i18n="personalPool">个人股票池</label>
-          <div class="pool-value" id="poolName">默认股票池</div>
-        </div>
-        <div class="toolbar pool-actions">
-          <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
-          <button class="secondary" onclick="runChanAnalysis()" data-i18n="runChanAnalysis">缠论结构分析</button>
-          <button class="secondary" onclick="generateSignals()" data-i18n="generatePoolSignals">生成持仓提示</button>
-          <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">生成复盘</button>
-          <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">MA/成交量回测</button>
-        </div>
+      <div class="action-bar toolbar pool-actions">
+        <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
+        <button class="secondary" onclick="runChanAnalysis()" data-i18n="runChanAnalysis">缠论结构分析</button>
+        <button class="secondary" onclick="generateSignals()" data-i18n="generatePoolSignals">生成持仓提示</button>
+        <button class="secondary" onclick="dailyReview()" data-i18n="dailyReview">生成复盘</button>
+        <button class="secondary" onclick="runBacktest()" data-i18n="runBacktest">MA/成交量回测</button>
       </div>
       <p class="status" id="actionStatus"></p>
       <div class="grid">
@@ -288,7 +270,11 @@ def index_html() -> str:
         addHolding: "新增持仓",
         addWatchSymbol: "添加关注股",
         symbol: "股票代码",
+        symbolOrName: "股票代码或名称",
+        symbolOrNamePlaceholder: "例如：600519 / 贵州茅台",
         name: "名称",
+        nameOptional: "名称",
+        nameOptionalPlaceholder: "可选，查询后自动填充",
         quantity: "数量",
         saveQuantity: "保存数量",
         quantityUpdated: "已更新持仓数量",
@@ -309,6 +295,8 @@ def index_html() -> str:
         mockSource: "Mock 演示行情",
         quoteLoaded: "已读取行情",
         quoteFailed: "行情读取失败",
+        lookupNoMatch: "未找到匹配股票",
+        symbolResolved: "已识别股票",
         watchSymbolAdded: "已加入当前股票池",
         watchSymbolExists: "该股票已在当前股票池",
         mockSourceHint: "当前使用演示行情，名称和价格不代表真实市场。",
@@ -333,8 +321,6 @@ def index_html() -> str:
         dailyReview: "生成复盘",
         runBacktest: "MA/成交量回测",
         holdings: "持仓",
-        personalPool: "个人股票池",
-        defaultPersonalPool: "默认股票池",
         poolMembers: "股票池",
         poolHint: "这里是你的关注名单，行情分析范围由个人股票池决定。",
         signals: "信号",
@@ -427,7 +413,11 @@ def index_html() -> str:
         addHolding: "Add Holding",
         addWatchSymbol: "Add Watch Symbol",
         symbol: "Symbol",
+        symbolOrName: "Symbol or Name",
+        symbolOrNamePlaceholder: "e.g. 600519 / Kweichow Moutai",
         name: "Name",
+        nameOptional: "Name",
+        nameOptionalPlaceholder: "Optional, auto-filled after lookup",
         quantity: "Quantity",
         saveQuantity: "Save Quantity",
         quantityUpdated: "Holding quantity updated",
@@ -448,6 +438,8 @@ def index_html() -> str:
         mockSource: "Mock Demo",
         quoteLoaded: "Quote loaded",
         quoteFailed: "Quote failed",
+        lookupNoMatch: "No matching stock found",
+        symbolResolved: "Stock resolved",
         watchSymbolAdded: "Added to the current stock pool",
         watchSymbolExists: "This symbol is already in the current stock pool",
         mockSourceHint: "Demo quotes are synthetic and do not represent the real market.",
@@ -472,8 +464,6 @@ def index_html() -> str:
         dailyReview: "Create Review",
         runBacktest: "MA/Volume Backtest",
         holdings: "Holdings",
-        personalPool: "Personal Pool",
-        defaultPersonalPool: "Default Pool",
         poolMembers: "Stock Pool",
         poolHint: "This is your watchlist. The personal stock pool controls the quote analysis scope.",
         signals: "Signals",
@@ -756,10 +746,8 @@ def index_html() -> str:
       const selected = cachedPools.find(pool => pool.is_default) || cachedPools[0];
       if (selected) {
         localStorage.setItem("tdx_pool_id", String(selected.id));
-        document.getElementById("poolName").textContent = selected.name || t("defaultPersonalPool");
       } else {
         localStorage.removeItem("tdx_pool_id");
-        document.getElementById("poolName").textContent = t("defaultPersonalPool");
       }
     }
     function selectedPoolId() {
@@ -956,8 +944,31 @@ def index_html() -> str:
       return document.getElementById("marketSourceSelect").value || "tongdaxin";
     }
     async function hydrateSymbolFromMarket(forceMessage) {
-      const symbol = currentSymbol();
-      if (!symbol) return null;
+      let symbol = currentSymbol();
+      const query = lookupText();
+      if (!query) return null;
+      if (!symbol) {
+        try {
+          const matches = await api(`/market/search?query=${encodeURIComponent(query)}&source=${encodeURIComponent(marketSource())}&limit=5`);
+          if (!matches.length) {
+            if (forceMessage) document.getElementById("quoteStatus").textContent = `${t("lookupNoMatch")}: ${query}`;
+            return null;
+          }
+          const match = matches[0];
+          document.getElementById("symbol").value = match.symbol;
+          if (match.name) {
+            const nameInput = document.getElementById("name");
+            nameInput.value = match.name;
+            autoNameValue = match.name;
+            nameEditedManually = false;
+          }
+          symbol = normalizeSymbolText(match.symbol);
+          document.getElementById("quoteStatus").textContent = `${t("symbolResolved")}: ${match.name || query} ${symbol}`;
+        } catch (error) {
+          document.getElementById("quoteStatus").textContent = `${t("quoteFailed")}: ${error.message}`;
+          return null;
+        }
+      }
       if (marketSource() === "mock") {
         if (forceMessage) renderSourceStatus();
         return null;
@@ -979,7 +990,13 @@ def index_html() -> str:
       }
     }
     function currentSymbol() {
-      return normalizeSymbolText(document.getElementById("symbol").value);
+      const value = normalizeSymbolText(document.getElementById("symbol").value);
+      return /^[0-9]{6}$/.test(value) ? value : "";
+    }
+    function lookupText() {
+      const symbolInput = String(document.getElementById("symbol").value || "").trim();
+      if (symbolInput) return symbolInput;
+      return String(document.getElementById("name").value || "").trim();
     }
     function poolSymbols() {
       return new Set(cachedWatchlist.map(row => normalizeSymbolText(row.symbol)));
@@ -993,7 +1010,8 @@ def index_html() -> str:
       return String(value || "").trim().toUpperCase();
     }
     function syncAutoName() {
-      const symbol = currentSymbol();
+      const rawInput = String(document.getElementById("symbol").value || "").trim();
+      if (rawInput && !/^[0-9]{0,6}$/.test(rawInput)) return;
       const nameInput = document.getElementById("name");
       if (nameEditedManually && nameInput.value !== autoNameValue) return;
       autoNameValue = "";

@@ -165,6 +165,14 @@ class MarketQuoteOut(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class StockSearchOut(BaseModel):
+    symbol: str
+    name: str | None = None
+    source: str
+    market: str | None = None
+    price: float | None = None
+
+
 class MarketKlineBarOut(BaseModel):
     symbol: str
     source: str

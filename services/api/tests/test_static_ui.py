@@ -23,11 +23,11 @@ class StaticUiTests(unittest.TestCase):
     def test_workbench_uses_selected_pool_as_primary_scope(self) -> None:
         html = index_html()
 
-        self.assertIn('id="poolName"', html)
-        self.assertIn("personalPool", html)
         self.assertIn("selectedPoolId", html)
         self.assertIn("poolHoldingsHint", html)
         self.assertIn("poolLatestSignalsHint", html)
+        self.assertNotIn('id="poolName"', html)
+        self.assertNotIn("personalPool", html)
         self.assertNotIn('id="poolSelect"', html)
         self.assertNotIn("setSelectedPool", html)
         self.assertNotIn('id="holdingScope"', html)
@@ -40,8 +40,12 @@ class StaticUiTests(unittest.TestCase):
         html = index_html()
 
         self.assertIn("添加关注股", html)
-        self.assertIn('id="symbol" value="600519" oninput="onSymbolChanged()"', html)
-        self.assertIn('id="name" value="" oninput="onNameChanged()"', html)
+        self.assertIn('id="symbol" value="" data-i18n-placeholder="symbolOrNamePlaceholder"', html)
+        self.assertIn('id="name" value="" data-i18n-placeholder="nameOptionalPlaceholder"', html)
+        self.assertIn('oninput="onNameChanged()"', html)
+        self.assertIn("symbolOrName", html)
+        self.assertIn("/market/search", html)
+        self.assertIn("lookupText", html)
         self.assertIn('onclick="addSymbolToPool()" data-i18n="addWatchSymbolButton"', html)
         self.assertNotIn('id="quantity"', html)
         self.assertNotIn('id="cost_price"', html)
@@ -58,8 +62,7 @@ class StaticUiTests(unittest.TestCase):
     def test_pool_analysis_button_uses_mcp_endpoint(self) -> None:
         html = index_html()
 
-        self.assertIn('class="pool-bar"', html)
-        self.assertIn('class="toolbar pool-actions"', html)
+        self.assertIn('class="action-bar toolbar pool-actions"', html)
         self.assertIn('onclick="analyzePool()"', html)
         self.assertIn("function analyzePool()", html)
         self.assertIn("/market-analysis", html)

@@ -13,6 +13,7 @@ from services.api.app.market_data import (
     _tdx_official_period,
     _tdx_official_setcode,
     get_market_data_provider,
+    search_stock_candidates,
 )
 
 
@@ -64,6 +65,31 @@ class MarketDataProviderTests(unittest.TestCase):
         provider = get_market_data_provider("eastmoney")
 
         self.assertEqual(provider.name, "eastmoney")
+
+    def test_stock_search_normalizes_eastmoney_candidates(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout=None):  # type: ignore[no-untyped-def]
+            captured["url"] = request.full_url
+            return FakeHttpResponse(
+                {
+                    "QuotationCodeTable": {
+                        "Data": [
+                            {"Code": "600519", "Name": "贵州茅台", "MarketType": "SH"},
+                            {"Code": "HK0001", "Name": "Not A Share"},
+                            {"Code": "688630", "Name": "芯碁微装", "MarketType": "SH"},
+                        ]
+                    }
+                }
+            )
+
+        with mock.patch("services.api.app.market_data.urlopen", fake_urlopen):
+            candidates = search_stock_candidates("茅台", limit=5)
+
+        self.assertIn("searchapi.eastmoney.com", str(captured["url"]))
+        self.assertEqual([item["symbol"] for item in candidates], ["600519", "688630"])
+        self.assertEqual(candidates[0]["name"], "贵州茅台")
+        self.assertEqual(candidates[0]["source"], "eastmoney-search")
 
     def test_tongdaxin_provider_is_primary_source_alias(self) -> None:
         provider = get_market_data_provider("tongdaxin")

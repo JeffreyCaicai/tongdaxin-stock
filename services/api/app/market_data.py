@@ -32,6 +32,23 @@ class MarketDataProvider(Protocol):
         raise NotImplementedError
 
 
+def search_stock_candidates(
+    query: str,
+    *,
+    source: str | None = None,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    normalized_query = query.strip()
+    if not normalized_query:
+        return []
+
+    if normalized_query.isdigit() and len(normalized_query) == 6:
+        quote = get_market_data_provider(source).fetch_quote(normalized_query)
+        return [_stock_candidate_from_quote(quote)]
+
+    return _eastmoney_stock_search(normalized_query, limit=limit)
+
+
 class MockMarketDataProvider:
     name = "mock"
 
@@ -556,6 +573,87 @@ def _symbol_seed(symbol: str) -> int:
     if digits:
         return int(digits)
     return sum(ord(character) for character in symbol)
+
+
+def _stock_candidate_from_quote(quote: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "symbol": normalize_symbol(str(quote["symbol"])),
+        "name": quote.get("name") or "",
+        "source": quote.get("source") or "",
+        "market": quote.get("market") or _market_name_for_symbol(str(quote["symbol"])),
+        "price": quote.get("price"),
+    }
+
+
+def _eastmoney_stock_search(query: str, *, limit: int = 8) -> list[dict[str, Any]]:
+    payload = _eastmoney_json(
+        "https://searchapi.eastmoney.com/api/suggest/get",
+        {
+            "input": query,
+            "type": "14",
+            "token": "D43BF722C8E33BCA8F60D85D35E4B1E2",
+            "count": str(max(1, min(limit, 20))),
+        },
+    )
+    table = _as_dict(payload.get("QuotationCodeTable") or payload.get("quotationCodeTable"))
+    rows = (
+        table.get("Data")
+        or table.get("data")
+        or payload.get("Data")
+        or payload.get("data")
+        or []
+    )
+    if not isinstance(rows, list):
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        item = _as_dict(row)
+        symbol = str(
+            _first_value(item, ("Code", "code", "SecurityCode", "security_code", "股票代码"))
+            or ""
+        ).strip()
+        if not _is_a_share_symbol(symbol) or symbol in seen:
+            continue
+        seen.add(symbol)
+        name = str(_first_value(item, ("Name", "name", "SecurityName", "security_name", "名称")) or "")
+        market = str(
+            _first_value(item, ("MktNum", "MarketType", "market", "QuoteID", "quote_id"))
+            or _market_name_for_symbol(symbol)
+        )
+        candidates.append(
+            {
+                "symbol": normalize_symbol(symbol),
+                "name": name,
+                "source": "eastmoney-search",
+                "market": market,
+                "price": None,
+            }
+        )
+
+    candidates.sort(
+        key=lambda item: (
+            0 if item["name"] == query or item["symbol"] == query else 1,
+            item["symbol"],
+        )
+    )
+    return candidates[: max(1, min(limit, 20))]
+
+
+def _is_a_share_symbol(symbol: str) -> bool:
+    return (
+        len(symbol) == 6
+        and symbol.isdigit()
+        and symbol[0] in {"0", "3", "6", "8"}
+    )
+
+
+def _market_name_for_symbol(symbol: str) -> str:
+    normalized_symbol = normalize_symbol(symbol)
+    if normalized_symbol.startswith(("6", "8")):
+        return "SH"
+    return "SZ"
 
 
 def _symbol_base_price(symbol: str) -> float:

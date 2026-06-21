@@ -16,7 +16,7 @@ from .csv_io import (
 )
 from .database import get_db, init_db
 from .indicators import calculate_indicator_snapshot
-from .market_data import MarketDataError, get_market_data_provider
+from .market_data import MarketDataError, get_market_data_provider, search_stock_candidates
 from .mcp_tools import McpToolError, call_eltdx_mcp_tool, list_eltdx_mcp_tools
 from .pool_analysis import (
     generate_stock_pool_market_analysis,
@@ -79,6 +79,7 @@ from .schemas import (
     SignalEvaluateRequest,
     SignalOut,
     SignalReviewOut,
+    StockSearchOut,
     StockPoolChanAnalysisRequest,
     StockPoolMarketAnalysisRequest,
     StockPoolMcpAnalysisRequest,
@@ -634,6 +635,18 @@ def api_fetch_market_quote(
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
     return _fetch_quote_and_cache(db, symbol=symbol, source=source)
+
+
+@app.get("/market/search", response_model=list[StockSearchOut])
+def api_search_market_symbols(
+    query: str,
+    source: str = "tdx-official",
+    limit: int = Query(default=8, ge=1, le=20),
+) -> list[dict]:
+    try:
+        return search_stock_candidates(query, source=source, limit=limit)
+    except MarketDataError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.get("/market/kline/{symbol}", response_model=MarketKlineOut)
