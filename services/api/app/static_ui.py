@@ -77,6 +77,14 @@ def index_html() -> str:
     .pool-field { flex: 0 1 220px; }
     .pool-field select,
     .pool-field input { width: 100%; }
+    .pool-value {
+      border: 1px solid #d9ded4;
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: #f7f8f5;
+      min-height: 40px;
+      box-sizing: border-box;
+    }
     .pool-actions { margin-bottom: 16px; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 14px; }
     .panel {
@@ -148,8 +156,8 @@ def index_html() -> str:
     <section>
       <div class="pool-bar">
         <div class="pool-field">
-          <label for="poolSelect" data-i18n="selectedPool">当前股票池</label>
-          <select id="poolSelect" onchange="setSelectedPool(this.value)"></select>
+          <label data-i18n="personalPool">个人股票池</label>
+          <div class="pool-value" id="poolName">默认股票池</div>
         </div>
         <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
       </div>
@@ -233,9 +241,10 @@ def index_html() -> str:
         dailyReview: "生成复盘",
         runBacktest: "MA/成交量回测",
         holdings: "持仓",
-        selectedPool: "当前股票池",
+        personalPool: "个人股票池",
+        defaultPersonalPool: "默认股票池",
         poolMembers: "股票池",
-        poolHint: "这里是你的关注名单，行情分析范围由所选股票池决定。",
+        poolHint: "这里是你的关注名单，行情分析范围由个人股票池决定。",
         signals: "信号",
         tradeHints: "交易提示",
         analysisResult: "分析结果",
@@ -348,9 +357,10 @@ def index_html() -> str:
         dailyReview: "Create Review",
         runBacktest: "MA/Volume Backtest",
         holdings: "Holdings",
-        selectedPool: "Current Pool",
+        personalPool: "Personal Pool",
+        defaultPersonalPool: "Default Pool",
         poolMembers: "Stock Pool",
-        poolHint: "This is your watchlist. The selected stock pool controls the quote analysis scope.",
+        poolHint: "This is your watchlist. The personal stock pool controls the quote analysis scope.",
         signals: "Signals",
         tradeHints: "Trade Hints",
         analysisResult: "Analysis Result",
@@ -603,21 +613,18 @@ def index_html() -> str:
     }
     async function loadPools() {
       cachedPools = await api("/stock-pools");
-      const select = document.getElementById("poolSelect");
-      const savedPoolId = localStorage.getItem("tdx_pool_id");
-      select.innerHTML = cachedPools.map(pool => `<option value="${pool.id}">${pool.name}</option>`).join("");
-      const selected = cachedPools.find(pool => String(pool.id) === savedPoolId) || cachedPools[0];
+      const selected = cachedPools.find(pool => pool.is_default) || cachedPools[0];
       if (selected) {
-        select.value = String(selected.id);
         localStorage.setItem("tdx_pool_id", String(selected.id));
+        document.getElementById("poolName").textContent = selected.name || t("defaultPersonalPool");
+      } else {
+        localStorage.removeItem("tdx_pool_id");
+        document.getElementById("poolName").textContent = t("defaultPersonalPool");
       }
     }
-    function setSelectedPool(poolId) {
-      localStorage.setItem("tdx_pool_id", poolId);
-      refreshAll();
-    }
     function selectedPoolId() {
-      const value = document.getElementById("poolSelect").value;
+      const selected = cachedPools.find(pool => pool.is_default) || cachedPools[0];
+      const value = selected ? selected.id : localStorage.getItem("tdx_pool_id");
       return value ? Number(value) : null;
     }
     async function generateSignals() {

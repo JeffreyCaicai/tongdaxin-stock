@@ -23,10 +23,13 @@ class StaticUiTests(unittest.TestCase):
     def test_workbench_uses_selected_pool_as_primary_scope(self) -> None:
         html = index_html()
 
-        self.assertIn('id="poolSelect"', html)
+        self.assertIn('id="poolName"', html)
+        self.assertIn("personalPool", html)
         self.assertIn("selectedPoolId", html)
         self.assertIn("poolHoldingsHint", html)
         self.assertIn("poolLatestSignalsHint", html)
+        self.assertNotIn('id="poolSelect"', html)
+        self.assertNotIn("setSelectedPool", html)
         self.assertNotIn('id="holdingScope"', html)
         self.assertNotIn('id="signalScope"', html)
         self.assertNotIn("currentHoldingsHint", html)
