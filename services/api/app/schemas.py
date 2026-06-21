@@ -259,6 +259,7 @@ class StockPoolDecisionEngineRequest(BaseModel):
     max_symbols: int = Field(default=30, ge=1, le=100)
     kline_limit: int = Field(default=240, ge=35, le=1000)
     horizon_days: int = Field(default=20, ge=5, le=120)
+    market_index_symbol: str | None = Field(default="000300", min_length=1, max_length=16)
 
 
 class IndicatorSnapshotOut(BaseModel):

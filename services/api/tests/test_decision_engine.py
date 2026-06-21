@@ -53,14 +53,20 @@ class DecisionEngineTests(unittest.TestCase):
             kline_by_symbol={"688630": bars},
             source="tdx-official",
             horizon_days=20,
+            index_bars=trend_bars(start_price=3000, days=120, step=5),
         )
 
         item = report["items"][0]
         probabilities = item["probabilities"]
         self.assertEqual(report["report_type"], "stock_pool_decision_engine")
+        self.assertEqual(report["market_regime"]["regime"], "uptrend")
+        self.assertIn("rule_state_machine", report["tool_plan"]["market_regime_model"])
+        self.assertIn("市场状态", {component["source"] for component in item["prior"]["components"]})
         self.assertAlmostEqual(sum(probabilities.values()), 1, places=3)
         self.assertGreater(probabilities["up"], probabilities["down"])
         self.assertIn("MA趋势", {entry["source"] for entry in item["evidence"]})
+        self.assertTrue(all("category" in entry for entry in item["evidence"]))
+        self.assertTrue(any("regime_weight" in entry for entry in item["evidence"]))
         self.assertIn(item["decision"]["key"], {"hold_observe", "position_review", "wait_confirm"})
         self.assertTrue(item["evidence_summary"])
 
@@ -120,9 +126,11 @@ class DecisionEngineTests(unittest.TestCase):
                     )
 
                 payload = report["payload"]
-                self.assertEqual(calls, [("quote", "688630"), ("kline", "688630")])
+                self.assertEqual(calls, [("kline", "000300"), ("quote", "688630"), ("kline", "688630")])
                 self.assertEqual(payload["report_type"], "stock_pool_decision_engine")
                 self.assertEqual(payload["scope"]["horizon_days"], 20)
+                self.assertEqual(payload["scope"]["market_index_symbol"], "000300")
+                self.assertIn("market_regime", payload)
                 self.assertEqual(payload["data_quality"]["failed_quote_count"], 0)
                 self.assertEqual(payload["items"][0]["symbol"], "688630")
                 self.assertIn("probabilities", payload["items"][0])

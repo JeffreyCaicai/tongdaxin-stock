@@ -317,6 +317,10 @@ def index_html() -> str:
         decisionEngineModel: "决策模型",
         horizonDays: "目标周期",
         scenarioCounts: "情景分布",
+        marketRegime: "市场状态",
+        regimeConfidence: "状态置信度",
+        strategyBias: "策略偏向",
+        regimeEvidence: "状态证据",
         analyzePool: "分析股票池行情",
         runChanAnalysis: "缠论结构分析",
         chanAnalysisFailed: "缠论结构分析失败",
@@ -454,6 +458,10 @@ def index_html() -> str:
         decisionEngineModel: "Decision model",
         horizonDays: "Horizon",
         scenarioCounts: "Scenario mix",
+        marketRegime: "Market Regime",
+        regimeConfidence: "Regime Confidence",
+        strategyBias: "Strategy Bias",
+        regimeEvidence: "Regime Evidence",
         analyzePool: "Analyze Pool Quotes",
         runChanAnalysis: "Chan Structure",
         chanAnalysisFailed: "Chan structure analysis failed",
@@ -566,6 +574,11 @@ def index_html() -> str:
         up: "上涨",
         range: "震荡",
         down: "下跌",
+        uptrend: "上升趋势",
+        downtrend: "下降趋势",
+        high_volatility_pressure: "高波动压力",
+        repair: "修复期",
+        unknown: "状态不足",
         low: "低",
         medium: "中",
         high: "高",
@@ -622,6 +635,11 @@ def index_html() -> str:
         up: "Up",
         range: "Range",
         down: "Down",
+        uptrend: "Uptrend",
+        downtrend: "Downtrend",
+        high_volatility_pressure: "High-vol pressure",
+        repair: "Repair",
+        unknown: "Unknown",
         low: "Low",
         medium: "Medium",
         high: "High",
@@ -777,7 +795,8 @@ def index_html() -> str:
             persist: true,
             max_symbols: 30,
             kline_limit: 240,
-            horizon_days: 20
+            horizon_days: 20,
+            market_index_symbol: "000300"
           })
         });
         renderDecisionEngine(cachedReview);
@@ -1261,9 +1280,14 @@ def index_html() -> str:
       const payload = report.payload || report;
       const quality = payload.data_quality || {};
       const counts = payload.scenario_counts || {};
+      const regime = payload.market_regime || {};
       const scenarioCounts = ["up", "range", "down"]
         .map(key => `${enumLabel(key)} ${counts[key] ?? 0}`)
         .join(", ");
+      const regimeEvidence = (regime.evidence || [])
+        .slice(0, 3)
+        .map(entry => `${entry.source || ""}: ${entry.observation || ""}`)
+        .filter(Boolean);
       const rows = (payload.items || []).map(item => {
         const probabilities = item.probabilities || {};
         const decision = item.decision || {};
@@ -1288,11 +1312,15 @@ def index_html() -> str:
       document.getElementById("review").innerHTML = `
         <p class="summary">${escapeHtml(payload.summary || "")}</p>
         <div class="metric-grid" style="margin-top:10px">
-          <div class="metric"><b>${t("decisionEngineModel")}</b>${escapeHtml(payload.tool_plan?.model || "-")}</div>
+          <div class="metric"><b>${t("marketRegime")}</b>${escapeHtml(enumLabel(regime.regime) || regime.label || "-")}</div>
+          <div class="metric"><b>${t("regimeConfidence")}</b>${escapeHtml(enumLabel(regime.confidence) || "-")}</div>
+          <div class="metric"><b>${t("strategyBias")}</b>${escapeHtml(regime.strategy_bias?.summary || "-")}</div>
           <div class="metric"><b>${t("horizonDays")}</b>${escapeHtml(String(payload.scope?.horizon_days || "-"))}</div>
           <div class="metric"><b>${t("scenarioCounts")}</b>${escapeHtml(scenarioCounts || "-")}</div>
           <div class="metric"><b>${t("failedSymbols")}</b>${escapeHtml([...failedQuotes, ...failedKlines].join(", ") || "-")}</div>
         </div>
+        <p class="status" style="margin-top:12px">${t("regimeEvidence")}</p>
+        <ul>${regimeEvidence.map(item => `<li>${escapeHtml(item)}</li>`).join("") || `<li>${escapeHtml("-")}</li>`}</ul>
         <div style="margin-top:12px">${table(rows, [
           "symbol",
           "name",

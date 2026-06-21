@@ -5,6 +5,7 @@ from typing import Any
 
 from .chan_analysis import analyze_chan_structure
 from .indicators import calculate_indicator_snapshot
+from .market_regime import infer_market_regime
 from .repository import normalize_symbol, utc_now
 
 
@@ -22,8 +23,12 @@ def generate_stock_pool_decision_engine(
     source: str,
     period: str = "daily",
     horizon_days: int = 20,
+    index_bars: list[dict[str, Any]] | None = None,
+    market_index_symbol: str | None = None,
+    market_regime: dict[str, Any] | None = None,
     failed_quote_symbols: list[str] | None = None,
     failed_kline_symbols: list[str] | None = None,
+    failed_market_index_symbol: str | None = None,
     max_symbols: int = 30,
 ) -> dict[str, Any]:
     max_symbols = max(1, min(int(max_symbols), 100))
@@ -36,6 +41,11 @@ def generate_stock_pool_decision_engine(
         normalize_symbol(str(item["symbol"])): item for item in watchlist
     }
     pool_context = _pool_context(quotes)
+    market_regime = market_regime or infer_market_regime(
+        index_bars=index_bars or [],
+        pool_quotes=quotes,
+        pool_kline_by_symbol=kline_by_symbol,
+    )
 
     items = [
         _decision_item(
@@ -45,6 +55,7 @@ def generate_stock_pool_decision_engine(
             quote=quotes.get(symbol),
             bars=kline_by_symbol.get(symbol) or [],
             pool_context=pool_context,
+            market_regime=market_regime,
             period=period,
             horizon_days=horizon_days,
         )
@@ -72,18 +83,22 @@ def generate_stock_pool_decision_engine(
             "symbol_count": len(items),
             "period": period,
             "horizon_days": horizon_days,
+            "market_index_symbol": market_index_symbol,
         },
         "tool_plan": {
             "data_source": source,
             "quote_tool": "quote",
             "kline_tool": "daily_kline",
             "model": "bayesian_evidence_softmax_v1",
+            "market_regime_model": market_regime.get("model", "rule_state_machine_v1"),
         },
+        "market_regime": market_regime,
         "data_quality": {
             "failed_quote_count": len(failed_quote_symbols),
             "failed_quote_symbols": failed_quote_symbols,
             "failed_kline_count": len(failed_kline_symbols),
             "failed_kline_symbols": failed_kline_symbols,
+            "failed_market_index_symbol": failed_market_index_symbol,
             "unavailable_evidence": [
                 "行业状态",
                 "基本面变化",
@@ -105,6 +120,7 @@ def _decision_item(
     quote: dict[str, Any] | None,
     bars: list[dict[str, Any]],
     pool_context: dict[str, Any],
+    market_regime: dict[str, Any],
     period: str,
     horizon_days: int,
 ) -> dict[str, Any]:
@@ -122,7 +138,12 @@ def _decision_item(
     )
     position = _position_context(holding, current_price)
 
-    prior = _prior_scores(pool_context=pool_context, indicator=indicator, current_price=current_price)
+    prior = _prior_scores(
+        pool_context=pool_context,
+        indicator=indicator,
+        current_price=current_price,
+        market_regime=market_regime,
+    )
     evidence = _evidence_entries(
         quote=quote,
         bars=bars,
@@ -132,6 +153,7 @@ def _decision_item(
         pool_context=pool_context,
         current_price=current_price,
     )
+    _apply_regime_weights(evidence, market_regime)
     z_scores = prior["scores"].copy()
     for entry in evidence:
         for scenario in SCENARIOS:
@@ -176,6 +198,7 @@ def _prior_scores(
     pool_context: dict[str, Any],
     indicator: dict[str, Any],
     current_price: float | None,
+    market_regime: dict[str, Any] | None,
 ) -> dict[str, Any]:
     scores = {scenario: 0.0 for scenario in SCENARIOS}
     components: list[dict[str, Any]] = []
@@ -215,6 +238,18 @@ def _prior_scores(
                 "股票池平均涨跌",
                 f"平均涨跌幅 {average_pct_change:.2f}%",
                 {"up": -0.06, "range": 0, "down": 0.12},
+            )
+
+    regime = (market_regime or {}).get("regime")
+    if regime:
+        component = _market_regime_prior(regime)
+        if component:
+            _apply_component(
+                scores,
+                components,
+                "市场状态",
+                f"{(market_regime or {}).get('label') or regime} / {(market_regime or {}).get('confidence') or 'low'}",
+                component,
             )
 
     atr_pct = _atr_pct(indicator, current_price)
@@ -264,16 +299,16 @@ def _ma_evidence(entries: list[dict[str, Any]], indicator: dict[str, Any], curre
     ma = indicator.get("ma", {})
     ma20 = _to_float(ma.get("ma20"))
     if trend == "bullish":
-        _add_evidence(entries, "MA趋势", "MA5 位于 MA20 上方，趋势偏多", up=0.5, range=-0.05, down=-0.18)
+        _add_evidence(entries, "MA趋势", "MA5 位于 MA20 上方，趋势偏多", up=0.5, range=-0.05, down=-0.18, category="trend")
     elif trend == "bearish":
-        _add_evidence(entries, "MA趋势", "MA5 位于 MA20 下方，趋势偏弱", up=-0.18, range=-0.05, down=0.5)
+        _add_evidence(entries, "MA趋势", "MA5 位于 MA20 下方，趋势偏弱", up=-0.18, range=-0.05, down=0.5, category="trend")
     elif trend == "neutral":
-        _add_evidence(entries, "MA趋势", "均线结构中性", up=0.02, range=0.22, down=0.02)
+        _add_evidence(entries, "MA趋势", "均线结构中性", up=0.02, range=0.22, down=0.02, category="mean_reversion")
     if current_price is not None and ma20:
         if current_price >= ma20:
-            _add_evidence(entries, "趋势位置", f"现价位于 MA20 上方 {((current_price / ma20) - 1) * 100:.2f}%", up=0.2, range=0.02, down=-0.08)
+            _add_evidence(entries, "趋势位置", f"现价位于 MA20 上方 {((current_price / ma20) - 1) * 100:.2f}%", up=0.2, range=0.02, down=-0.08, category="trend")
         else:
-            _add_evidence(entries, "趋势位置", f"现价位于 MA20 下方 {((current_price / ma20) - 1) * 100:.2f}%", up=-0.08, range=0.02, down=0.2)
+            _add_evidence(entries, "趋势位置", f"现价位于 MA20 下方 {((current_price / ma20) - 1) * 100:.2f}%", up=-0.08, range=0.02, down=0.2, category="risk")
 
 
 def _volume_evidence(entries: list[dict[str, Any]], indicator: dict[str, Any], bars: list[dict[str, Any]]) -> None:
@@ -282,11 +317,11 @@ def _volume_evidence(entries: list[dict[str, Any]], indicator: dict[str, Any], b
     if volume_ratio is None:
         return
     if volume_ratio >= 1.5 and (recent_return or 0) >= 0:
-        _add_evidence(entries, "成交量", f"成交量比 {volume_ratio:.2f}，放量配合上涨", up=0.26, range=-0.04, down=0.02)
+        _add_evidence(entries, "成交量", f"成交量比 {volume_ratio:.2f}，放量配合上涨", up=0.26, range=-0.04, down=0.02, category="breakout")
     elif volume_ratio >= 1.5:
-        _add_evidence(entries, "成交量", f"成交量比 {volume_ratio:.2f}，放量但价格未走强", up=-0.02, range=0.08, down=0.2)
+        _add_evidence(entries, "成交量", f"成交量比 {volume_ratio:.2f}，放量但价格未走强", up=-0.02, range=0.08, down=0.2, category="risk")
     elif volume_ratio <= 0.7:
-        _add_evidence(entries, "成交量", f"成交量比 {volume_ratio:.2f}，缩量等待方向", up=-0.04, range=0.22, down=0.03)
+        _add_evidence(entries, "成交量", f"成交量比 {volume_ratio:.2f}，缩量等待方向", up=-0.04, range=0.22, down=0.03, category="mean_reversion")
 
 
 def _relative_strength_evidence(
@@ -300,45 +335,45 @@ def _relative_strength_evidence(
         return
     relative = pct_change - average_pct_change
     if relative >= 1:
-        _add_evidence(entries, "相对强弱", f"涨跌幅强于股票池均值 {relative:.2f} 个百分点", up=0.25, range=0.02, down=-0.08)
+        _add_evidence(entries, "相对强弱", f"涨跌幅强于股票池均值 {relative:.2f} 个百分点", up=0.25, range=0.02, down=-0.08, category="trend")
     elif relative <= -1:
-        _add_evidence(entries, "相对强弱", f"涨跌幅弱于股票池均值 {abs(relative):.2f} 个百分点", up=-0.08, range=0.02, down=0.25)
+        _add_evidence(entries, "相对强弱", f"涨跌幅弱于股票池均值 {abs(relative):.2f} 个百分点", up=-0.08, range=0.02, down=0.25, category="risk")
     else:
-        _add_evidence(entries, "相对强弱", "与股票池均值接近", up=0.02, range=0.1, down=0.02)
+        _add_evidence(entries, "相对强弱", "与股票池均值接近", up=0.02, range=0.1, down=0.02, category="mean_reversion")
 
 
 def _chan_evidence(entries: list[dict[str, Any]], chan: dict[str, Any] | None) -> None:
     signal_type = (chan or {}).get("signal", {}).get("type")
     structure = (chan or {}).get("structure")
     if signal_type in {"suspected_third_buy", "upward_leave"}:
-        _add_evidence(entries, "缠论结构", f"{structure or ''} / {signal_type}", up=0.34, range=0.03, down=-0.08)
+        _add_evidence(entries, "缠论结构", f"{structure or ''} / {signal_type}", up=0.34, range=0.03, down=-0.08, category="breakout")
     elif signal_type == "extended_above_center":
-        _add_evidence(entries, "缠论结构", "远离旧中枢上方，等待当前价附近新结构", up=0.08, range=0.24, down=0.12)
+        _add_evidence(entries, "缠论结构", "远离旧中枢上方，等待当前价附近新结构", up=0.08, range=0.24, down=0.12, category="risk")
     elif signal_type == "center_range":
-        _add_evidence(entries, "缠论结构", "中枢震荡，方向未选择", up=0.02, range=0.3, down=0.02)
+        _add_evidence(entries, "缠论结构", "中枢震荡，方向未选择", up=0.02, range=0.3, down=0.02, category="mean_reversion")
     elif signal_type in {"suspected_third_sell", "downward_leave"}:
-        _add_evidence(entries, "缠论结构", f"{structure or ''} / {signal_type}", up=-0.08, range=0.02, down=0.34)
+        _add_evidence(entries, "缠论结构", f"{structure or ''} / {signal_type}", up=-0.08, range=0.02, down=0.34, category="risk")
     elif signal_type == "extended_below_center":
-        _add_evidence(entries, "缠论结构", "远离旧中枢下方，等待当前价附近新结构", up=0.02, range=0.18, down=0.22)
+        _add_evidence(entries, "缠论结构", "远离旧中枢下方，等待当前价附近新结构", up=0.02, range=0.18, down=0.22, category="risk")
     elif signal_type:
-        _add_evidence(entries, "缠论结构", f"结构信号 {signal_type}", up=0, range=0.08, down=0)
+        _add_evidence(entries, "缠论结构", f"结构信号 {signal_type}", up=0, range=0.08, down=0, category="mean_reversion")
 
 
 def _position_evidence(entries: list[dict[str, Any]], position: dict[str, Any] | None) -> None:
     if not position:
-        _add_evidence(entries, "持仓状态", "未持仓，仅作为候选观察", up=0, range=0.08, down=0)
+        _add_evidence(entries, "持仓状态", "未持仓，仅作为候选观察", up=0, range=0.08, down=0, category="mean_reversion")
         return
     pnl_pct = _to_float(position.get("pnl_pct"))
     if pnl_pct is None:
         return
     if pnl_pct >= 30:
-        _add_evidence(entries, "持仓盈亏", f"浮盈 {pnl_pct:.2f}%，回撤敏感度提高", up=0.02, range=0.18, down=0.24)
+        _add_evidence(entries, "持仓盈亏", f"浮盈 {pnl_pct:.2f}%，回撤敏感度提高", up=0.02, range=0.18, down=0.24, category="risk")
     elif pnl_pct >= 10:
-        _add_evidence(entries, "持仓盈亏", f"浮盈 {pnl_pct:.2f}%，趋势仍需确认", up=0.1, range=0.12, down=0.04)
+        _add_evidence(entries, "持仓盈亏", f"浮盈 {pnl_pct:.2f}%，趋势仍需确认", up=0.1, range=0.12, down=0.04, category="mean_reversion")
     elif pnl_pct <= -8:
-        _add_evidence(entries, "持仓盈亏", f"浮亏 {pnl_pct:.2f}%，风险证据抬升", up=-0.08, range=0.04, down=0.24)
+        _add_evidence(entries, "持仓盈亏", f"浮亏 {pnl_pct:.2f}%，风险证据抬升", up=-0.08, range=0.04, down=0.24, category="risk")
     else:
-        _add_evidence(entries, "持仓盈亏", f"盈亏 {pnl_pct:.2f}%，接近成本区", up=0.03, range=0.12, down=0.03)
+        _add_evidence(entries, "持仓盈亏", f"盈亏 {pnl_pct:.2f}%，接近成本区", up=0.03, range=0.12, down=0.03, category="mean_reversion")
 
 
 def _price_location_evidence(
@@ -351,9 +386,9 @@ def _price_location_evidence(
     high_20 = _to_float(indicator.get("recent_high_20"))
     low_20 = _to_float(indicator.get("recent_low_20"))
     if high_20 and current_price >= high_20 * 0.98:
-        _add_evidence(entries, "价格位置", "接近20日高位，强势但追高风险增加", up=0.16, range=0.04, down=0.08)
+        _add_evidence(entries, "价格位置", "接近20日高位，强势但追高风险增加", up=0.16, range=0.04, down=0.08, category="breakout")
     if low_20 and current_price <= low_20 * 1.03:
-        _add_evidence(entries, "价格位置", "接近20日低位，弱势修复仍需确认", up=-0.04, range=0.08, down=0.18)
+        _add_evidence(entries, "价格位置", "接近20日低位，弱势修复仍需确认", up=-0.04, range=0.08, down=0.18, category="risk")
 
 
 def _decision(
@@ -568,6 +603,32 @@ def _apply_component(
     )
 
 
+def _market_regime_prior(regime: str) -> dict[str, float] | None:
+    priors = {
+        "uptrend": {"up": 0.32, "range": 0.05, "down": -0.12},
+        "downtrend": {"up": -0.12, "range": 0.05, "down": 0.32},
+        "range": {"up": 0.02, "range": 0.28, "down": 0.02},
+        "high_volatility_pressure": {"up": -0.16, "range": 0.18, "down": 0.35},
+        "repair": {"up": 0.14, "range": 0.2, "down": -0.05},
+    }
+    return priors.get(regime)
+
+
+def _apply_regime_weights(
+    entries: list[dict[str, Any]],
+    market_regime: dict[str, Any] | None,
+) -> None:
+    weights = ((market_regime or {}).get("strategy_bias") or {}).get("weights") or {}
+    for entry in entries:
+        category = str(entry.get("category") or "technical")
+        weight = _to_float(weights.get(category)) or 1.0
+        entry["regime_weight"] = round(weight, 4)
+        entry["contribution"] = {
+            scenario: round(float(entry["contribution"].get(scenario, 0)) * weight, 4)
+            for scenario in SCENARIOS
+        }
+
+
 def _add_evidence(
     entries: list[dict[str, Any]],
     source: str,
@@ -577,11 +638,13 @@ def _add_evidence(
     range: float = 0,  # noqa: A002 - scenario name is user-facing.
     down: float = 0,
     confidence: str = "medium",
+    category: str = "technical",
 ) -> None:
     entries.append(
         {
             "source": source,
             "observation": observation,
+            "category": category,
             "contribution": {
                 "up": round(up, 4),
                 "range": round(range, 4),

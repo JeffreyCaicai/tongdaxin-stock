@@ -1132,9 +1132,30 @@ def api_analyze_stock_pool_with_decision_engine(
     kline_by_symbol: dict[str, list[dict]] = {}
     failed_quote_symbols: list[str] = []
     failed_kline_symbols: list[str] = []
+    market_index_symbol = (
+        normalize_symbol(payload.market_index_symbol)
+        if payload.market_index_symbol
+        else None
+    )
+    index_bars: list[dict] = []
+    failed_market_index_symbol: str | None = None
     watchlist_by_symbol = {
         normalize_symbol(str(item["symbol"])): item for item in watchlist
     }
+
+    if market_index_symbol:
+        try:
+            index_kline = _fetch_kline_and_cache(
+                db,
+                symbol=market_index_symbol,
+                source=payload.source,
+                period=payload.period,
+                limit=payload.kline_limit,
+            )
+        except HTTPException:
+            failed_market_index_symbol = market_index_symbol
+        else:
+            index_bars = index_kline["bars"]
 
     for symbol in symbols:
         normalized_symbol = normalize_symbol(symbol)
@@ -1177,8 +1198,11 @@ def api_analyze_stock_pool_with_decision_engine(
         source=payload.source,
         period=payload.period,
         horizon_days=payload.horizon_days,
+        index_bars=index_bars,
+        market_index_symbol=market_index_symbol,
         failed_quote_symbols=failed_quote_symbols,
         failed_kline_symbols=failed_kline_symbols,
+        failed_market_index_symbol=failed_market_index_symbol,
         max_symbols=payload.max_symbols,
     )
     return _save_report(db, report=report, persist=payload.persist)
