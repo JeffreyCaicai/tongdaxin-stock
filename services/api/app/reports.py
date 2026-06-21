@@ -114,6 +114,7 @@ def generate_daily_review(
     action_counts: dict[str, int] = {}
     high_risk_signal_count = 0
     high_risk_symbols: list[str] = []
+    high_risk_signals: list[dict[str, Any]] = []
     for signal in signals:
         action_counts[signal["action"]] = action_counts.get(signal["action"], 0) + 1
         if signal["risk_level"] == "high":
@@ -121,6 +122,7 @@ def generate_daily_review(
             symbol = signal["symbol"]
             if symbol not in high_risk_symbols:
                 high_risk_symbols.append(symbol)
+            high_risk_signals.append(signal)
 
     failed_fetches = [log for log in fetch_logs if log["status"] != "success"]
 
@@ -133,19 +135,62 @@ def generate_daily_review(
         ),
         "holding_count": len(holdings),
         "signal_count": len(signals),
+        "holding_details": [_holding_detail(holding) for holding in holdings[:12]],
+        "recent_signal_details": [_signal_detail(signal) for signal in signals[:12]],
         "action_counts": action_counts,
         "high_risk_symbols": high_risk_symbols,
         "high_risk_signal_count": high_risk_signal_count,
+        "high_risk_signal_details": [
+            _signal_detail(signal) for signal in high_risk_signals[:8]
+        ],
         "data_quality": {
             "fetch_log_count": len(fetch_logs),
             "failed_fetch_count": len(failed_fetches),
-            "failed_fetches": failed_fetches[:10],
+            "failed_fetches": [_fetch_detail(fetch) for fetch in failed_fetches[:10]],
         },
         "next_session_focus_keys": [
             "review_high_risk",
             "check_data_quality",
             "compare_with_thesis",
         ],
+    }
+
+
+def _holding_detail(holding: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "symbol": holding.get("symbol"),
+        "name": holding.get("name"),
+        "quantity": holding.get("quantity"),
+        "cost_price": holding.get("cost_price"),
+        "stop_loss": holding.get("stop_loss"),
+        "take_profit": holding.get("take_profit"),
+        "initial_thesis": holding.get("initial_thesis"),
+    }
+
+
+def _signal_detail(signal: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": signal.get("id"),
+        "symbol": signal.get("symbol"),
+        "signal_type": signal.get("signal_type"),
+        "action": signal.get("action"),
+        "risk_level": signal.get("risk_level"),
+        "price": signal.get("price"),
+        "strength": signal.get("strength"),
+        "created_at": signal.get("created_at"),
+        "next_check": signal.get("next_check"),
+        "reasons": signal.get("reasons", []),
+    }
+
+
+def _fetch_detail(fetch: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "symbol": fetch.get("symbol"),
+        "source": fetch.get("source"),
+        "data_type": fetch.get("data_type"),
+        "status": fetch.get("status"),
+        "message": fetch.get("message"),
+        "fetched_at": fetch.get("fetched_at"),
     }
 
 

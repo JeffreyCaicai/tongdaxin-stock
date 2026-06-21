@@ -93,8 +93,10 @@ def index_html() -> str:
       padding: 14px;
       min-height: 180px;
     }
+    .table-scroll { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { text-align: left; border-bottom: 1px solid #edf0ea; padding: 8px 6px; vertical-align: top; }
+    td { word-break: break-word; }
     th { color: #5a6255; font-weight: 600; }
     .status { font-size: 13px; color: #5a6255; }
     .summary { background: #f7f8f5; border-radius: 6px; padding: 10px; margin: 0; }
@@ -288,6 +290,10 @@ def index_html() -> str:
         poolHistorySignalsHint: "正在显示当前股票池最近保存的历史交易提示。",
         highRiskSymbols: "高风险股票",
         failedFetchCount: "数据拉取失败数",
+        holdingDetails: "持仓明细",
+        highRiskSignalDetails: "高风险信号明细",
+        recentSignalDetails: "近期交易提示",
+        failedFetchDetails: "数据拉取失败明细",
         fetchOk: "未发现数据拉取失败",
         reviewedTemplate: "已复盘 {holdings} 条持仓和 {signals} 条近期信号。",
         highRiskSignalCount: "高风险信号数",
@@ -306,6 +312,13 @@ def index_html() -> str:
         id: "ID",
         priority: "优先级",
         status: "状态",
+        source: "来源",
+        data_type: "数据类型",
+        message: "信息",
+        fetched_at: "拉取时间",
+        strength: "强度",
+        reasons: "原因",
+        next_check: "下一步检查",
         signal_type: "信号类型",
         action: "动作",
         risk_level: "风险",
@@ -314,7 +327,8 @@ def index_html() -> str:
         created_at: "生成时间",
         cost_price: "成本价",
         stop_loss: "止损价",
-        take_profit: "止盈价"
+        take_profit: "止盈价",
+        initial_thesis: "原始理由"
       },
       en: {
         appTitle: "Tongdaxin Stock Workbench",
@@ -394,6 +408,10 @@ def index_html() -> str:
         poolHistorySignalsHint: "Showing recent historical trade hints in the current stock pool.",
         highRiskSymbols: "High-risk symbols",
         failedFetchCount: "Failed fetches",
+        holdingDetails: "Holding Details",
+        highRiskSignalDetails: "High-risk Signal Details",
+        recentSignalDetails: "Recent Trade Hints",
+        failedFetchDetails: "Failed Fetch Details",
         fetchOk: "No failed data fetches",
         reviewedTemplate: "Reviewed {holdings} holdings and {signals} recent signals.",
         highRiskSignalCount: "High-risk signals",
@@ -412,6 +430,13 @@ def index_html() -> str:
         id: "ID",
         priority: "Priority",
         status: "Status",
+        source: "Source",
+        data_type: "Data Type",
+        message: "Message",
+        fetched_at: "Fetched At",
+        strength: "Strength",
+        reasons: "Reasons",
+        next_check: "Next Check",
         signal_type: "Signal Type",
         action: "Action",
         risk_level: "Risk",
@@ -420,7 +445,8 @@ def index_html() -> str:
         created_at: "Created At",
         cost_price: "Cost Price",
         stop_loss: "Stop Loss",
-        take_profit: "Take Profit"
+        take_profit: "Take Profit",
+        initial_thesis: "Original Thesis"
       }
     };
     const enumText = {
@@ -456,7 +482,13 @@ def index_html() -> str:
         review_pool_candidates: "复核股票池候选",
         watching: "观察中",
         holding: "已持仓",
-        paused: "暂停观察"
+        paused: "暂停观察",
+        success: "成功",
+        error: "失败",
+        missing: "缺失",
+        quote: "行情",
+        kline: "K线",
+        indicator: "指标"
       },
       en: {
         hold_observe: "Hold and observe",
@@ -490,7 +522,13 @@ def index_html() -> str:
         review_pool_candidates: "Review pool candidates",
         watching: "Watching",
         holding: "Holding",
-        paused: "Paused"
+        paused: "Paused",
+        success: "Success",
+        error: "Failed",
+        missing: "Missing",
+        quote: "Quote",
+        kline: "K-line",
+        indicator: "Indicator"
       }
     };
     let currentLanguage = localStorage.getItem("tdx_language") || "zh";
@@ -782,6 +820,20 @@ def index_html() -> str:
         .replace("{signals}", payload.signal_count ?? 0);
       const failedCount = quality.failed_fetch_count ?? 0;
       const fetchText = failedCount === 0 ? t("fetchOk") : failedCount;
+      const holdings = (payload.holding_details || []).map(row => ({
+        ...row,
+        cost_price: formatOptionalPrice(row.cost_price),
+        stop_loss: formatOptionalPrice(row.stop_loss),
+        take_profit: formatOptionalPrice(row.take_profit)
+      }));
+      const highRiskSignals = mapSignalDetailRows(payload.high_risk_signal_details || []);
+      const recentSignals = mapSignalDetailRows(payload.recent_signal_details || []);
+      const failedFetches = (quality.failed_fetches || []).map(row => ({
+        ...row,
+        data_type: enumLabel(row.data_type),
+        status: enumLabel(row.status),
+        fetched_at: shortTime(row.fetched_at)
+      }));
       document.getElementById("review").innerHTML = `
         <p class="summary">${summary}</p>
         <div class="metric-grid" style="margin-top:10px">
@@ -789,9 +841,29 @@ def index_html() -> str:
           <div class="metric"><b>${t("highRiskSignalCount")}</b>${payload.high_risk_signal_count ?? 0}</div>
           <div class="metric"><b>${t("failedFetchCount")}</b>${fetchText}</div>
         </div>
+        <p class="status" style="margin-top:12px">${t("holdingDetails")}</p>
+        ${table(holdings, ["symbol", "name", "quantity", "cost_price", "stop_loss", "take_profit", "initial_thesis"])}
+        <p class="status" style="margin-top:12px">${t("highRiskSignalDetails")}</p>
+        ${table(highRiskSignals, ["symbol", "signal_type", "action", "risk_level", "price", "created_at", "reasons", "next_check"])}
+        <p class="status" style="margin-top:12px">${t("recentSignalDetails")}</p>
+        ${table(recentSignals, ["symbol", "signal_type", "action", "risk_level", "price", "created_at", "next_check"])}
+        <p class="status" style="margin-top:12px">${t("failedFetchDetails")}</p>
+        ${table(failedFetches, ["symbol", "source", "data_type", "status", "message", "fetched_at"])}
         <p class="status" style="margin-top:12px">${t("nextFocus")}</p>
         <ul>${focusKeys.map(key => `<li>${t("focus_" + key)}</li>`).join("")}</ul>
       `;
+    }
+    function mapSignalDetailRows(rows) {
+      return rows.map(row => ({
+        ...row,
+        signal_type: enumLabel(row.signal_type),
+        action: enumLabel(row.action),
+        risk_level: enumLabel(row.risk_level),
+        price: formatOptionalPrice(row.price),
+        strength: row.strength === null || row.strength === undefined ? "" : Number(row.strength).toFixed(2),
+        created_at: shortTime(row.created_at),
+        reasons: Array.isArray(row.reasons) ? row.reasons.join("; ") : (row.reasons || "")
+      }));
     }
     function renderPoolAnalysis(report) {
       const payload = report.payload || report;
@@ -864,6 +936,10 @@ def index_html() -> str:
       if (value === null || value === undefined || value === "") return "-";
       return Number(value).toFixed(2);
     }
+    function formatOptionalPrice(value) {
+      if (value === null || value === undefined || value === "") return "";
+      return Number(value).toFixed(3);
+    }
     function escapeHtml(value) {
       return String(value ?? "")
         .replaceAll("&", "&amp;")
@@ -876,7 +952,7 @@ def index_html() -> str:
       if (!rows.length) return `<p class="status">${t("noData")}</p>`;
       const head = fields.map(field => `<th>${escapeHtml(t(field))}</th>`).join("");
       const body = rows.map(row => `<tr>${fields.map(field => `<td>${escapeHtml(row[field] ?? "")}</td>`).join("")}</tr>`).join("");
-      return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+      return `<div class="table-scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
     }
     function latestBySymbol(rows) {
       const seen = new Set();

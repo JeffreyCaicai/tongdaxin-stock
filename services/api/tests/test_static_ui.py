@@ -104,6 +104,17 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("MA20", html)
         self.assertIn("成交量比", html)
 
+    def test_daily_review_renders_detail_tables(self) -> None:
+        html = index_html()
+
+        self.assertIn("holdingDetails", html)
+        self.assertIn("highRiskSignalDetails", html)
+        self.assertIn("recentSignalDetails", html)
+        self.assertIn("failedFetchDetails", html)
+        self.assertIn("mapSignalDetailRows", html)
+        self.assertIn("formatOptionalPrice", html)
+        self.assertIn('["symbol", "signal_type", "action", "risk_level", "price", "created_at", "reasons", "next_check"]', html)
+
 
 if __name__ == "__main__":
     unittest.main()

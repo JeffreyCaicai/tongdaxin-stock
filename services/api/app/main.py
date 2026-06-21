@@ -736,15 +736,25 @@ def api_generate_daily_review(
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
     symbols = pool_symbols(db, pool_id)
-    signals = [
-        signal
-        for signal in [_signal_row_to_output(row) for row in list_signals(db, limit=signal_limit)]
-        if not symbols or normalize_symbol(signal["symbol"]) in symbols
-    ]
+    all_signals = [_signal_row_to_output(row) for row in list_signals(db, limit=signal_limit)]
+    all_holdings = latest_by_symbol(list_holdings(db))
+    all_fetch_logs = list_market_fetch_logs(db, limit=signal_limit)
+    if pool_id is None:
+        signals = all_signals
+        holdings = all_holdings
+        fetch_logs = all_fetch_logs
+    else:
+        signals = [
+            signal
+            for signal in all_signals
+            if normalize_symbol(signal["symbol"]) in symbols
+        ]
+        holdings = filter_rows_by_symbols(all_holdings, symbols) if symbols else []
+        fetch_logs = filter_rows_by_symbols(all_fetch_logs, symbols) if symbols else []
     report = generate_daily_review(
-        holdings=filter_rows_by_symbols(latest_by_symbol(list_holdings(db)), symbols),
+        holdings=holdings,
         signals=signals,
-        fetch_logs=list_market_fetch_logs(db, limit=signal_limit),
+        fetch_logs=fetch_logs,
     )
     return _save_report(db, report=report, persist=persist)
 

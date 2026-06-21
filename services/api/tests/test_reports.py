@@ -70,11 +70,41 @@ class ReportTests(unittest.TestCase):
         report = generate_daily_review(
             holdings=[{"symbol": "600519"}],
             signals=[
-                {"symbol": "600519", "action": "hold", "risk_level": "low"},
-                {"symbol": "000001", "action": "review_risk", "risk_level": "high"},
-                {"symbol": "000001", "action": "review_risk", "risk_level": "high"},
+                {
+                    "symbol": "600519",
+                    "action": "hold",
+                    "risk_level": "low",
+                    "signal_type": "hold_observe",
+                    "price": 100,
+                    "reasons": ["No trigger."],
+                },
+                {
+                    "symbol": "000001",
+                    "action": "review_risk",
+                    "risk_level": "high",
+                    "signal_type": "hard_stop_loss",
+                    "price": 9,
+                    "reasons": ["Below stop."],
+                },
+                {
+                    "symbol": "000001",
+                    "action": "review_risk",
+                    "risk_level": "high",
+                    "signal_type": "hard_stop_loss",
+                    "price": 8.8,
+                    "reasons": ["Still below stop."],
+                },
             ],
-            fetch_logs=[{"status": "success"}, {"status": "error"}],
+            fetch_logs=[
+                {"symbol": "600519", "status": "success"},
+                {
+                    "symbol": "000001",
+                    "source": "tdx-official",
+                    "data_type": "quote",
+                    "status": "error",
+                    "message": "timeout",
+                },
+            ],
         )
 
         self.assertEqual(report["report_type"], "daily_review")
@@ -82,6 +112,10 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(report["data_quality"]["failed_fetch_count"], 1)
         self.assertEqual(report["high_risk_symbols"], ["000001"])
         self.assertEqual(report["high_risk_signal_count"], 2)
+        self.assertEqual(report["holding_details"][0]["symbol"], "600519")
+        self.assertEqual(report["recent_signal_details"][0]["symbol"], "600519")
+        self.assertEqual(report["high_risk_signal_details"][0]["symbol"], "000001")
+        self.assertEqual(report["data_quality"]["failed_fetches"][0]["message"], "timeout")
         self.assertIn("check_data_quality", report["next_session_focus_keys"])
 
 
