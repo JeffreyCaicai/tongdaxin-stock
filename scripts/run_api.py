@@ -117,21 +117,20 @@ class FallbackHandler(BaseHTTPRequestHandler):
                 limit = int(_query_value(query, "signal_limit", "100"))
                 pool_id = _query_int(query, "pool_id")
                 with connect() as db:
-                    symbols = pool_symbols(db, pool_id) if pool_id else set()
+                    symbols = pool_symbols(db, pool_id)
                     signals = [
                         signal
                         for signal in [
                             _signal_row_to_output(row)
-                            for row in list_signals(db, limit=limit)
+                            for row in list_signals(db, symbols=symbols, limit=limit)
                         ]
-                        if not symbols or normalize_symbol(signal["symbol"]) in symbols
                     ]
                     report = generate_daily_review(
                         holdings=filter_rows_by_symbols(
                             latest_by_symbol(list_holdings(db)), symbols
                         ),
                         signals=signals,
-                        fetch_logs=list_market_fetch_logs(db, limit=limit),
+                        fetch_logs=list_market_fetch_logs(db, symbols=symbols, limit=limit),
                     )
                     self._send_json(report)
             elif path.startswith("/market/quote/"):
@@ -369,7 +368,7 @@ def _workbench_actions_from_market(db, payload: dict) -> dict:
     signals: list[dict] = []
     missing_prices: list[str] = []
     pool_id = payload.get("pool_id")
-    symbols = pool_symbols(db, int(pool_id)) if pool_id else set()
+    symbols = pool_symbols(db, int(pool_id)) if pool_id else None
     holdings = filter_rows_by_symbols(latest_by_symbol(list_holdings(db)), symbols)
 
     for holding in holdings:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from datetime import date
 from typing import Any
 
 from .chan_analysis import analyze_chan_structure
@@ -11,6 +12,9 @@ from .repository import normalize_symbol, utc_now
 
 SCENARIOS = ("up", "range", "down")
 SOFTMAX_TEMPERATURE = 1.35
+MODEL_VERSION = "rule_based_scenario_v1"
+STALE_AFTER_CALENDAR_DAYS = 7
+MAX_ENDPOINT_LAG_SESSIONS = 3
 
 
 def generate_stock_pool_decision_engine(
@@ -31,8 +35,12 @@ def generate_stock_pool_decision_engine(
     failed_market_index_symbol: str | None = None,
     max_symbols: int = 30,
 ) -> dict[str, Any]:
+    if period != "daily":
+        raise ValueError("This v1 model supports only daily bars.")
+    if type(horizon_days) is not int or horizon_days != 20:
+        raise ValueError("This v1 model supports only a 20-trading-session horizon.")
     max_symbols = max(1, min(int(max_symbols), 100))
-    horizon_days = max(5, min(int(horizon_days), 120))
+    generated_at = utc_now()
     ordered_symbols = _symbol_order(watchlist=watchlist, holdings=holdings)[:max_symbols]
     holdings_by_symbol = {
         normalize_symbol(str(holding["symbol"])): holding for holding in holdings
@@ -40,13 +48,48 @@ def generate_stock_pool_decision_engine(
     watchlist_by_symbol = {
         normalize_symbol(str(item["symbol"])): item for item in watchlist
     }
-    pool_context = _pool_context(quotes)
-    factor_context = _factor_context(index_bars=index_bars or [], kline_by_symbol=kline_by_symbol)
-    market_regime = market_regime or infer_market_regime(
-        index_bars=index_bars or [],
-        pool_quotes=quotes,
-        pool_kline_by_symbol=kline_by_symbol,
+    shared = _shared_inputs(
+        quotes=quotes, kline_by_symbol=kline_by_symbol,
+        index_bars=index_bars or [], generated_at=generated_at,
     )
+    pool_context = _pool_context(shared["quotes"])
+    factor_context = _factor_context(
+        index_bars=index_bars or [], kline_by_symbol=kline_by_symbol, generated_at=generated_at,
+        calendar_index_bars=(index_bars or []) if shared["index"] else [],
+        calendar_kline_by_symbol=shared["klines"],
+    )
+    quality = shared["data_quality"]
+    supplied_quality = (market_regime or {}).get("data_quality") or {}
+    supplied_degraded = (
+        supplied_quality.get("degraded", False)
+        or supplied_quality.get("status") in {"stale", "insufficient"}
+    )
+    if supplied_degraded:
+        quality = {
+            **quality,
+            "status": "partial" if quality["status"] == "complete" else quality["status"],
+            "degraded": True,
+            "issues": [*quality["issues"], "excluded_supplied_regime"],
+        }
+    if (
+        market_regime is None or quality["excluded_quote_symbols"]
+        or quality["excluded_kline_symbols"] or "stale_index" in quality["issues"]
+        or "invalid_index_bars" in quality["issues"] or supplied_degraded
+        or not (shared["quotes"] or shared["klines"] or shared["index"])
+    ):
+        market_regime = infer_market_regime(
+            index_bars=shared["index"], pool_quotes=shared["quotes"],
+            pool_kline_by_symbol=shared["klines"],
+        )
+    market_regime = {
+        **market_regime,
+        "confidence": _cap_confidence(
+            market_regime.get("confidence", "low"),
+            "low" if quality["status"] in {"stale", "insufficient"}
+            else "medium" if quality["degraded"] else "high",
+        ),
+        "data_quality": quality,
+    }
 
     items = [
         _decision_item(
@@ -60,6 +103,7 @@ def generate_stock_pool_decision_engine(
             market_regime=market_regime,
             period=period,
             horizon_days=horizon_days,
+            generated_at=generated_at,
         )
         for symbol in ordered_symbols
     ]
@@ -70,10 +114,30 @@ def generate_stock_pool_decision_engine(
     return {
         "report_type": "stock_pool_decision_engine",
         "symbol": None,
-        "generated_at": utc_now(),
+        "model_version": MODEL_VERSION,
+        "period": period,
+        "generated_at": generated_at,
+        "calibration": {
+            "status": "uncalibrated",
+            "score_type": "rule_based_scenario_scores",
+            "is_calibrated_probability": False,
+            "method": "evidence_weighted_softmax",
+            "temperature": SOFTMAX_TEMPERATURE,
+        },
+        "provenance": {
+            "source": source,
+            "period": period,
+            "generated_at": generated_at,
+            "as_of": factor_context["as_of"],
+            "calendar_source": factor_context["calendar_source"],
+            "market_index_symbol": market_index_symbol,
+            "windows": factor_context["windows"],
+            "stale_after_calendar_days": STALE_AFTER_CALENDAR_DAYS,
+            "max_endpoint_lag_sessions": MAX_ENDPOINT_LAG_SESSIONS,
+        },
         "summary": (
             f"已用 {source} 的行情与 {period} K线完成“{pool_name}”持仓决策引擎分析："
-            f"{len(items)} 只股票，目标周期约 {horizon_days} 日。"
+            f"{len(items)} 只股票，目标周期 {horizon_days} 个交易日；情景分数未经校准。"
         ),
         "pool": {
             "id": pool.get("id"),
@@ -85,13 +149,14 @@ def generate_stock_pool_decision_engine(
             "symbol_count": len(items),
             "period": period,
             "horizon_days": horizon_days,
+            "horizon_sessions": horizon_days,
             "market_index_symbol": market_index_symbol,
         },
         "tool_plan": {
             "data_source": source,
             "quote_tool": "quote",
             "kline_tool": "daily_kline",
-            "model": "bayesian_evidence_softmax_v1",
+            "model": MODEL_VERSION,
             "market_regime_model": market_regime.get("model", "rule_state_machine_v1"),
         },
         "market_regime": market_regime,
@@ -128,14 +193,31 @@ def _decision_item(
     market_regime: dict[str, Any],
     period: str,
     horizon_days: int,
+    generated_at: str,
 ) -> dict[str, Any]:
     name = (
         (quote or {}).get("name")
         or (watchlist_item or {}).get("name")
         or (holding or {}).get("name")
     )
-    current_price = _current_price(quote, bars)
+    raw_bars = bars
+    bars = _clean_bars(bars)
+    data_quality = _item_data_quality(
+        symbol=symbol, quote=quote, raw_bars=raw_bars, bars=bars,
+        factor_context=factor_context, generated_at=generated_at,
+    )
+    # Retain raw quality/provenance, but do not score a stale individual series.
+    if any(issue in data_quality["issues"] for issue in ("stale_kline", "stale_factor_window")):
+        bars = []
+    scoring_quote = _fresh_quote(quote, generated_at)
+    current_price = _current_price(scoring_quote, bars)
+    price_origin = (
+        "quote" if scoring_quote is not None
+        else "latest_close" if current_price is not None else None
+    )
     indicator = calculate_indicator_snapshot(bars) if bars else {"bars": 0}
+    if len(bars) < 20 or any(bar["volume"] is None for bar in bars[-20:]):
+        indicator["volume_ratio"] = None
     chan = (
         analyze_chan_structure(symbol=symbol, name=name, bars=bars, period=period)
         if bars
@@ -157,7 +239,7 @@ def _decision_item(
         market_regime=market_regime,
     )
     evidence = _evidence_entries(
-        quote=quote,
+        quote=scoring_quote,
         bars=bars,
         indicator=indicator,
         chan=chan,
@@ -173,13 +255,32 @@ def _decision_item(
             z_scores[scenario] += float(entry["contribution"].get(scenario, 0))
     probabilities = _softmax(z_scores)
     decision = _decision(probabilities=probabilities, position=position, evidence=evidence)
+    if data_quality["status"] == "stale":
+        decision.update(
+            key="wait_confirm", label="等待确认",
+            next_check="补齐新鲜行情和K线后重新评估。",
+        )
+    if not evidence:
+        data_quality["issues"].append("no_evidence")
+        if data_quality["status"] != "stale":
+            data_quality["status"] = "insufficient"
+    ceiling = (
+        "low" if data_quality["status"] in {"insufficient", "stale"}
+        else "medium" if data_quality["issues"] else "high"
+    )
+    decision["confidence"] = _cap_confidence(decision["confidence"], ceiling)
+    for entry in evidence:
+        entry["confidence"] = _cap_confidence(entry["confidence"], ceiling)
     top_evidence = _top_evidence(evidence)
 
     return {
         "symbol": symbol,
         "name": name,
         "horizon_days": horizon_days,
+        "horizon_sessions": horizon_days,
         "current_price": current_price,
+        "price_origin": price_origin,
+        "data_quality": data_quality,
         "position": position,
         "indicator": {
             "trend": indicator.get("trend"),
@@ -300,6 +401,8 @@ def _evidence_entries(
     current_price: float | None,
 ) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
+    if not bars and quote is None and current_price is None:
+        return entries
     _ma_evidence(entries, indicator, current_price)
     _volume_evidence(entries, indicator, bars)
     _momentum_factor_evidence(entries, factor_profile)
@@ -568,7 +671,7 @@ def _mean_reversion_factor_evidence(entries: list[dict[str, Any]], factor_profil
     if ma20_deviation is None:
         return
 
-    if -3 <= ma20_deviation <= 5 and (volume_ratio is None or volume_ratio <= 0.85) and (return20 or 0) > 0:
+    if -3 <= ma20_deviation <= 5 and volume_ratio is not None and volume_ratio <= 0.85 and (return20 or 0) > 0:
         _add_evidence(
             entries,
             "均值回归位置",
@@ -767,9 +870,9 @@ def _next_steps(
 
 def _pool_context(quotes: dict[str, dict[str, Any]]) -> dict[str, Any]:
     changes = [
-        float(quote["pct_change"])
+        value
         for quote in quotes.values()
-        if quote.get("pct_change") is not None
+        if (value := _to_float(quote.get("pct_change"))) is not None
     ]
     if not changes:
         return {"average_pct_change": None, "positive_ratio": None}
@@ -783,21 +886,59 @@ def _factor_context(
     *,
     index_bars: list[dict[str, Any]],
     kline_by_symbol: dict[str, list[dict[str, Any]]],
+    generated_at: str,
+    calendar_index_bars: list[dict[str, Any]] | None = None,
+    calendar_kline_by_symbol: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
-    symbol_returns = {
-        normalize_symbol(symbol): {
-            "return20_pct": _round_optional(_return_pct(bars, 20)),
-            "return60_pct": _round_optional(_return_pct(bars, 60)),
+    index_dates = [bar["trade_date"] for bar in _dated_bars(
+        index_bars if calendar_index_bars is None else calendar_index_bars
+    )]
+    calendar_pool = kline_by_symbol if calendar_kline_by_symbol is None else calendar_kline_by_symbol
+    calendar = index_dates or sorted({
+        bar["trade_date"] for bars in calendar_pool.values() for bar in _dated_bars(bars)
+    })
+    if not calendar:
+        calendar = sorted({
+            bar["trade_date"] for bars in kline_by_symbol.values() for bar in _dated_bars(bars)
+        })
+    as_of = calendar[-1] if calendar else None
+    calendar_source = "index" if index_dates else "pool"
+    windows = {
+        str(sessions): {
+            "start": calendar[-sessions - 1] if len(calendar) > sessions else None,
+            "end": as_of,
+            "as_of": as_of,
+            "sessions": sessions,
+            "calendar_source": calendar_source,
         }
+        for sessions in (20, 60)
+    }
+
+    def window_returns(bars: list[dict[str, Any]]) -> dict[str, Any]:
+        endpoints = {
+            key: _window_return(bars, window, calendar, generated_at)
+            for key, window in windows.items()
+        }
+        return {
+            "return20_pct": endpoints["20"]["return_pct"],
+            "return60_pct": endpoints["60"]["return_pct"],
+            "windows": endpoints,
+        }
+
+    symbol_returns = {
+        normalize_symbol(symbol): window_returns(bars)
         for symbol, bars in kline_by_symbol.items()
     }
     return {
-        "index": {
-            "return20_pct": _round_optional(_return_pct(index_bars, 20)),
-            "return60_pct": _round_optional(_return_pct(index_bars, 60)),
-        },
+        "as_of": as_of,
+        "calendar": calendar,
+        "calendar_source": calendar_source,
+        "windows": windows,
+        "index": window_returns(index_bars),
         "pool": {
             "sample_size": len(symbol_returns),
+            "sample_size20": sum(row["return20_pct"] is not None for row in symbol_returns.values()),
+            "sample_size60": sum(row["return60_pct"] is not None for row in symbol_returns.values()),
             "average_return20_pct": _round_optional(
                 _average_optional(row.get("return20_pct") for row in symbol_returns.values())
             ),
@@ -813,6 +954,228 @@ def _factor_context(
         },
         "symbols": symbol_returns,
     }
+
+
+def _trade_date(value: Any) -> str | None:
+    try:
+        return date.fromisoformat(str(value)[:10]).isoformat()
+    except ValueError:
+        return None
+
+
+def _dated_bars(bars: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_date = {
+        trade_date: {**bar, "trade_date": trade_date}
+        for bar in bars if (trade_date := _trade_date(bar.get("trade_date"))) is not None
+    }
+    return [by_date[key] for key in sorted(by_date)]
+
+
+def _clean_bars(bars: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    clean = []
+    for bar in _dated_bars(bars):
+        prices = _valid_ohlc(bar)
+        if prices is None:
+            continue
+        clean.append({**bar, **prices, "volume": _valid_volume(bar.get("volume"))})
+    return clean
+
+
+def _valid_ohlc(bar: dict[str, Any]) -> dict[str, float] | None:
+    prices = {key: _positive_price(bar.get(key)) for key in ("open", "high", "low", "close")}
+    if any(value is None for value in prices.values()):
+        return None
+    if not (
+        prices["low"] <= min(prices["open"], prices["close"])
+        <= max(prices["open"], prices["close"]) <= prices["high"]
+    ):
+        return None
+    return prices
+
+
+def _valid_volume(value: Any) -> float | None:
+    volume = None if isinstance(value, bool) else _to_float(value)
+    return volume if volume is not None and volume >= 0 else None
+
+
+def _fresh_quote(quote: dict[str, Any] | None, generated_at: str) -> dict[str, Any] | None:
+    price = _positive_price((quote or {}).get("price"))
+    if price is None or _stale_date((quote or {}).get("fetched_at"), generated_at):
+        return None
+    return {**quote, "price": price, "pct_change": _to_float(quote.get("pct_change"))}
+
+
+def _series_is_stale(bars: list[dict[str, Any]], calendar: list[str], generated_at: str) -> bool:
+    return bool(bars and (
+        _stale_date(bars[-1]["trade_date"], generated_at)
+        or sum(day > bars[-1]["trade_date"] for day in calendar) > MAX_ENDPOINT_LAG_SESSIONS
+    ))
+
+
+def _shared_inputs(
+    *, quotes: dict[str, dict[str, Any]], kline_by_symbol: dict[str, list[dict[str, Any]]],
+    index_bars: list[dict[str, Any]], generated_at: str,
+) -> dict[str, Any]:
+    clean_index = _clean_bars(index_bars)
+    clean_klines = {symbol: _clean_bars(bars) for symbol, bars in kline_by_symbol.items()}
+    calendar = sorted({
+        bar["trade_date"] for bars in [clean_index, *clean_klines.values()] for bar in bars
+    })
+    fresh_quotes = {
+        symbol: fresh for symbol, quote in quotes.items()
+        if (fresh := _fresh_quote(quote, generated_at)) is not None
+    }
+    fresh_klines = {
+        symbol: bars for symbol, bars in clean_klines.items()
+        if bars and not _series_is_stale(bars, calendar, generated_at)
+    }
+    fresh_index = clean_index if not _series_is_stale(clean_index, calendar, generated_at) else []
+    excluded_quotes = sorted(set(quotes) - set(fresh_quotes))
+    excluded_klines = sorted(set(kline_by_symbol) - set(fresh_klines))
+    issues = []
+    if _series_is_stale(clean_index, calendar, generated_at):
+        issues.append("stale_index")
+    elif len(clean_index) != len(index_bars):
+        issues.append("invalid_index_bars")
+    elif len(clean_index) < 60:
+        issues.append("insufficient_index" if clean_index else "missing_index")
+    if excluded_quotes:
+        issues.append("excluded_quotes")
+    if excluded_klines:
+        issues.append("excluded_klines")
+    if any(len(clean_klines[symbol]) != len(bars) for symbol, bars in kline_by_symbol.items()):
+        issues.append("invalid_pool_bars")
+    has_fresh = bool(fresh_quotes or fresh_klines or fresh_index)
+    has_stale = (
+        "stale_index" in issues
+        or any(_stale_date(quote.get("fetched_at"), generated_at) for quote in quotes.values())
+        or any(_series_is_stale(bars, calendar, generated_at) for bars in clean_klines.values())
+    )
+    status = (
+        "stale" if not has_fresh and has_stale
+        else "insufficient" if not has_fresh
+        else "partial" if issues else "complete"
+    )
+    return {
+        "quotes": fresh_quotes, "klines": fresh_klines, "index": fresh_index,
+        "data_quality": {
+            "status": status, "degraded": status != "complete", "issues": issues,
+            "excluded_quote_symbols": excluded_quotes,
+            "excluded_kline_symbols": excluded_klines,
+            "index_as_of": _dated_bars(index_bars)[-1]["trade_date"] if _dated_bars(index_bars) else None,
+            "eligible_index_as_of": fresh_index[-1]["trade_date"] if fresh_index else None,
+        },
+    }
+
+
+def _stale_date(value: str | None, generated_at: str) -> bool:
+    trade_date = _trade_date(value)
+    reference_date = _trade_date(generated_at)
+    return bool(
+        trade_date and reference_date
+        and (date.fromisoformat(reference_date) - date.fromisoformat(trade_date)).days > STALE_AFTER_CALENDAR_DAYS
+    )
+
+
+def _window_return(
+    bars: list[dict[str, Any]], window: dict[str, Any], calendar: list[str], generated_at: str,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "status": "insufficient" if window["start"] is None else "missing",
+        "return_pct": None,
+        "start_date": None, "end_date": None,
+        "start_close": None, "end_close": None,
+        "start_lag_sessions": None, "end_lag_sessions": None,
+        "start_lag_calendar_days": None, "end_lag_calendar_days": None,
+        "as_of": None,
+    }
+    ordered = _dated_bars(bars)
+    result["as_of"] = ordered[-1]["trade_date"] if ordered else None
+    if window["start"] is None or not ordered:
+        return result
+    # Keep invalid endpoint records visible; never look past a bad close to fabricate a return.
+    for label in ("start", "end"):
+        available = [bar for bar in ordered if bar["trade_date"] <= window[label]]
+        if not available:
+            return result
+        endpoint = available[-1]
+        result[f"{label}_date"] = endpoint["trade_date"]
+        result[f"{label}_close"] = _positive_price(endpoint.get("close"))
+        result[f"{label}_lag_sessions"] = sum(endpoint["trade_date"] < day <= window[label] for day in calendar)
+        result[f"{label}_lag_calendar_days"] = (
+            date.fromisoformat(window[label]) - date.fromisoformat(endpoint["trade_date"])
+        ).days
+    endpoints = [bar for bar in ordered if bar["trade_date"] in {result["start_date"], result["end_date"]}]
+    if (
+        result["start_close"] is None or result["end_close"] is None
+        or any(_valid_ohlc(bar) is None for bar in endpoints)
+    ):
+        result["status"] = "invalid"
+    elif (
+        max(result["start_lag_sessions"], result["end_lag_sessions"]) > MAX_ENDPOINT_LAG_SESSIONS
+        or max(result["start_lag_calendar_days"], result["end_lag_calendar_days"]) > STALE_AFTER_CALENDAR_DAYS
+        or _stale_date(result["end_date"], generated_at)
+    ):
+        result["status"] = "stale"
+    else:
+        result["status"] = "complete"
+        result["return_pct"] = _round_optional((result["end_close"] / result["start_close"] - 1) * 100)
+    return result
+
+
+def _item_data_quality(
+    *, symbol: str, quote: dict[str, Any] | None, raw_bars: list[dict[str, Any]],
+    bars: list[dict[str, Any]], factor_context: dict[str, Any], generated_at: str,
+) -> dict[str, Any]:
+    issues = []
+    if _positive_price((quote or {}).get("price")) is None:
+        issues.append("missing_quote")
+        if quote is not None:
+            issues.append("invalid_quote_price")
+    if not bars:
+        issues.append("missing_kline")
+    if len(bars) < 60:
+        issues.append("insufficient_kline")
+    if len(bars) != len(raw_bars):
+        issues.append("invalid_kline_bars")
+    if any(bar["volume"] is None for bar in bars):
+        issues.append("invalid_volume")
+    kline_as_of = bars[-1]["trade_date"] if bars else None
+    calendar = factor_context["calendar"]
+    if kline_as_of and (
+        _stale_date(kline_as_of, generated_at)
+        or sum(day > kline_as_of for day in calendar) > MAX_ENDPOINT_LAG_SESSIONS
+    ):
+        issues.append("stale_kline")
+    quote_fetched_at = (quote or {}).get("fetched_at")
+    if quote_fetched_at and _stale_date(quote_fetched_at, generated_at):
+        issues.append("stale_quote")
+    index_windows = factor_context["index"]["windows"]
+    if any(endpoint["status"] != "complete" for endpoint in index_windows.values()):
+        issues.append(
+            "stale_index" if any(row["status"] == "stale" for row in index_windows.values())
+            else "missing_index"
+        )
+    stock_windows = (factor_context["symbols"].get(normalize_symbol(symbol)) or {}).get("windows", {})
+    if any(endpoint["status"] != "complete" for endpoint in stock_windows.values()):
+        issues.append("unavailable_factor_window")
+    if any(endpoint["status"] == "stale" for endpoint in stock_windows.values()):
+        issues.append("stale_factor_window")
+    status = (
+        "stale" if any(issue in issues for issue in ("stale_kline", "stale_quote", "stale_factor_window"))
+        else "insufficient" if len(bars) < 60
+        else "partial" if issues else "complete"
+    )
+    return {
+        "status": status, "issues": issues,
+        "quote_fetched_at": quote_fetched_at,
+        "kline_as_of": kline_as_of, "bar_count": len(bars),
+    }
+
+
+def _cap_confidence(confidence: str, ceiling: str) -> str:
+    levels = ("low", "medium", "high")
+    return levels[min(levels.index(confidence), levels.index(ceiling))]
 
 
 def _factor_profile(
@@ -839,6 +1202,16 @@ def _factor_profile(
     ma20 = _to_float(ma.get("ma20"))
     ma60 = _to_float(ma.get("ma60"))
     return {
+        "as_of": factor_context["as_of"],
+        "windows": {
+            key: {
+                **window,
+                "stock": symbol_returns.get("windows", {}).get(key),
+                "index": index_context["windows"][key],
+                "pool_sample_size": pool_context[f"sample_size{key}"],
+            }
+            for key, window in factor_context["windows"].items()
+        },
         "momentum": {
             "return20_pct": _round_optional(return20),
             "return60_pct": _round_optional(return60),
@@ -897,7 +1270,7 @@ def _position_context(holding: dict[str, Any] | None, current_price: float | Non
     if holding is None:
         return None
     quantity = _to_float(holding.get("quantity")) or 0
-    cost_price = _to_float(holding.get("cost_price"))
+    cost_price = _positive_price(holding.get("cost_price"))
     market_value = quantity * current_price if current_price is not None else None
     pnl = (
         quantity * (current_price - cost_price)
@@ -920,12 +1293,12 @@ def _position_context(holding: dict[str, Any] | None, current_price: float | Non
 
 
 def _current_price(quote: dict[str, Any] | None, bars: list[dict[str, Any]]) -> float | None:
-    quote_price = _to_float((quote or {}).get("price"))
+    quote_price = _positive_price((quote or {}).get("price"))
     if quote_price is not None:
         return quote_price
     if bars:
         ordered = sorted(bars, key=lambda bar: str(bar["trade_date"]))
-        return _to_float(ordered[-1].get("close"))
+        return _positive_price(ordered[-1].get("close"))
     return None
 
 
@@ -933,8 +1306,8 @@ def _return_pct(bars: list[dict[str, Any]], window: int) -> float | None:
     if len(bars) < 2:
         return None
     ordered = sorted(bars, key=lambda bar: str(bar["trade_date"]))
-    last = _to_float(ordered[-1].get("close"))
-    previous = _to_float(ordered[max(0, len(ordered) - window - 1)].get("close"))
+    last = _positive_price(ordered[-1].get("close"))
+    previous = _positive_price(ordered[max(0, len(ordered) - window - 1)].get("close"))
     if last is None or previous in {None, 0}:
         return None
     return ((last - previous) / previous) * 100
@@ -1086,6 +1459,14 @@ def _to_float(value: Any) -> float | None:
     if value is None or value == "":
         return None
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError, OverflowError):
         return None
+
+
+def _positive_price(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    number = _to_float(value)
+    return number if number is not None and number > 0 else None

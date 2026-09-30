@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from services.api.app.reports import (
+    generate_decision_review,
     generate_daily_review,
     generate_stock_report,
     generate_trading_plan,
@@ -10,6 +11,24 @@ from services.api.app.reports import (
 
 
 class ReportTests(unittest.TestCase):
+    def test_saved_review_updates_scope_without_recomputing_scores(self) -> None:
+        analysis = {
+            "generated_at": "2026-09-30T00:00:00+00:00", "summary": "Old two-stock summary",
+            "scope": {"symbol_count": 2}, "scenario_counts": {"up": 1, "range": 0, "down": 1},
+            "items": [{"symbol": "600519", "probabilities": {"up": .6, "range": .3, "down": .1}},
+                      {"symbol": "000001", "probabilities": {"up": .1, "range": .3, "down": .6}}],
+            "data_quality": {"failed_quote_count": 1, "failed_quote_symbols": ["000001"]},
+        }
+        review = generate_decision_review({}, analysis, {"600519", "688630"})
+        saved = review["decision_analysis"]
+        self.assertEqual(saved["scenario_counts"], {"up": 1, "range": 0, "down": 0})
+        self.assertEqual(saved["data_quality"]["failed_quote_count"], 0)
+        self.assertEqual(saved["review_scope"]["not_analyzed_symbols"], ["688630"])
+        self.assertEqual(saved["review_scope"]["excluded_symbols"], ["000001"])
+        self.assertEqual(saved["items"][0]["probabilities"], analysis["items"][0]["probabilities"])
+        self.assertNotEqual(saved["summary"], analysis["summary"])
+        self.assertEqual(analysis["scope"]["symbol_count"], 2)
+
     def test_stock_report_includes_data_refs(self) -> None:
         report = generate_stock_report(
             symbol="600519",

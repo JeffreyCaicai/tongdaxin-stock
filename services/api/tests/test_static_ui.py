@@ -1,11 +1,95 @@
 from __future__ import annotations
 
 import unittest
+import shutil
+import re
+from html.parser import HTMLParser
 
 from services.api.app.static_ui import index_html
+from services.api.tests.test_static_ui_runtime import run_ui_javascript
+
+
+class DecisionMarkupParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.columns = []
+        self.summary_count = 0
+        self.detail_count = 0
+        self.detail_depth = 0
+        self.tables_in_details = 0
+        self.table_count = 0
+        self.unsafe_tags = []
+        self.definition_depth = 0
+        self.nested_definitions = 0
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        if tag == "details":
+            self.detail_count += 1
+            self.detail_depth += 1
+        if tag == "summary" and self.detail_depth:
+            self.summary_count += 1
+        if tag == "th":
+            self.columns.append(dict(attrs))
+        if tag == "dl":
+            if self.definition_depth:
+                self.nested_definitions += 1
+            self.definition_depth += 1
+        if tag == "table" and self.detail_depth:
+            self.tables_in_details += 1
+        if tag == "table":
+            self.table_count += 1
+        if tag in {"script", "img"}:
+            self.unsafe_tags.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "details":
+            self.detail_depth -= 1
+        if tag == "dl":
+            self.definition_depth -= 1
 
 
 class StaticUiTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is not installed")
+    def test_not_analyzed_markup_has_no_legacy_review_tables(self) -> None:
+        result = run_ui_javascript("not-analyzed-markup")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parser = DecisionMarkupParser()
+        parser.feed(result.stdout)
+        self.assertEqual(parser.table_count, 0)
+        self.assertEqual(parser.columns, [])
+        self.assertIn("请先运行持仓决策引擎", result.stdout)
+
+    def test_responsive_containers_constrain_intrinsic_table_width(self) -> None:
+        style = re.search(r"<style>(.*?)</style>", index_html(), re.DOTALL).group(1)
+
+        def declarations(selector: str) -> dict:
+            rules = re.findall(re.escape(selector) + r"\s*\{([^{}]*)\}", style)
+            return dict(re.findall(r"([\w-]+)\s*:\s*([^;]+);", " ".join(rules)))
+
+        for selector in ["section", ".panel", ".header-tools"]:
+            self.assertEqual(declarations(selector).get("min-width"), "0", selector)
+        self.assertEqual(declarations("main").get("grid-template-columns"), "minmax(0, 1fr)")
+        self.assertEqual(declarations(".grid").get("grid-template-columns"), "minmax(0, 1fr)")
+        self.assertEqual(declarations(".table-scroll").get("max-width"), "100%")
+        self.assertEqual(declarations(".table-scroll").get("overflow-x"), "auto")
+        self.assertEqual(declarations(".header-tools select").get("max-width"), "100%")
+        self.assertEqual(declarations(".status").get("overflow-wrap"), "anywhere")
+        self.assertNotIn("overflow-x", declarations("body"))
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is not installed")
+    def test_rendered_decision_overview_and_native_details_are_accessible(self) -> None:
+        result = run_ui_javascript("markup")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parser = DecisionMarkupParser()
+        parser.feed(result.stdout)
+        self.assertEqual(len(parser.columns), 9)
+        self.assertTrue(all(column.get("scope") == "col" for column in parser.columns))
+        self.assertEqual(parser.detail_count, 1)
+        self.assertEqual(parser.summary_count, 1)
+        self.assertEqual(parser.tables_in_details, 0)
+        self.assertEqual(parser.nested_definitions, 0, "Nested window fields must not shrink repeatedly on mobile")
+        self.assertEqual(parser.unsafe_tags, [])
+
     def test_workbench_contains_language_switcher(self) -> None:
         html = index_html()
 

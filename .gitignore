@@ -9,6 +9,8 @@ venv/
 
 # Local config and data
 .env
+.env.*
+!.env.example
 data/local.db
 data/*.db
 data/cache/*

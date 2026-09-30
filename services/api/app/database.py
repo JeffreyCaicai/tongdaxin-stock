@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
@@ -14,7 +15,9 @@ SCHEMA_PATH = PROJECT_ROOT / "services" / "api" / "app" / "schema.sql"
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
     path = db_path or get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path)
+    # FastAPI may move a request's dependency, handler and cleanup between workers.
+    # Each request still owns its connection; never share it between requests.
+    connection = sqlite3.connect(path, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
@@ -23,9 +26,10 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
 def init_db(db_path: Path | None = None) -> Path:
     path = db_path or get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with connect(path) as connection:
-        connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        _run_lightweight_migrations(connection)
+    with closing(connect(path)) as connection:
+        with connection:
+            connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+            _run_lightweight_migrations(connection)
     return path
 
 

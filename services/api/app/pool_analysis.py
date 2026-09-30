@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -299,7 +301,7 @@ def _analyze_symbol(
         calls["quote"] = {"status": "skipped", "message": "No quote-like MCP tool found."}
     else:
         args = _tool_arguments(quote_tool, symbol, quote_arguments)
-        quote_summary = _call_and_summarize(client, quote_tool, args)
+        quote_summary = _call_and_summarize(client, quote_tool, args, symbol=symbol)
         calls["quote"] = quote_summary
 
     if profile_tool is None:
@@ -309,17 +311,13 @@ def _analyze_symbol(
         }
     else:
         args = _tool_arguments(profile_tool, symbol, profile_arguments)
-        profile_summary = _call_and_summarize(client, profile_tool, args)
+        profile_summary = _call_and_summarize(client, profile_tool, args, symbol=symbol)
         calls["profile"] = profile_summary
 
-    price = _first_non_none(
-        (quote_summary or {}).get("fields", {}).get("price"),
-        _recursive_find((quote_summary or {}).get("raw", {}), PRICE_KEYS),
-    )
+    price = (quote_summary or {}).get("fields", {}).get("price")
     name = _first_non_none(
         (profile_summary or {}).get("fields", {}).get("name"),
         (quote_summary or {}).get("fields", {}).get("name"),
-        _recursive_find((profile_summary or {}).get("raw", {}), NAME_KEYS),
         holding.get("name") if holding else None,
         watchlist_item.get("name") if watchlist_item else None,
     )
@@ -338,6 +336,8 @@ def _call_and_summarize(
     client: McpStdioClient,
     tool: dict[str, Any],
     arguments: dict[str, Any],
+    *,
+    symbol: str,
 ) -> dict[str, Any]:
     tool_name = str(tool.get("name", ""))
     try:
@@ -349,16 +349,16 @@ def _call_and_summarize(
             "status": "error",
             "message": str(exc),
         }
-    summary = _summarize_mcp_result(result)
+    summary = _summarize_mcp_result(result, symbol=symbol)
     summary.update(
         {
             "tool_name": tool_name,
             "arguments": arguments,
-            "status": "error" if result.get("isError") else "success",
+            "status": "error" if summary["is_error"] else "success",
             "raw": result,
         }
     )
-    return summary
+    return _json_safe_payload(summary)
 
 
 def _tool_arguments(
@@ -432,18 +432,83 @@ def _fill_placeholders(value: Any, symbol: str) -> Any:
     return value
 
 
-def _summarize_mcp_result(result: dict[str, Any]) -> dict[str, Any]:
+def _summarize_mcp_result(
+    result: dict[str, Any], *, symbol: str | None = None
+) -> dict[str, Any]:
     text = _content_text(result)
+    data = result.get("structuredContent")
+    if not isinstance(data, (Mapping, list)):
+        decoded = []
+        for item in result.get("content", []):
+            if not isinstance(item, Mapping) or not isinstance(item.get("text"), str):
+                continue
+            try:
+                decoded.append(json.loads(item["text"]))
+            except json.JSONDecodeError:
+                continue
+        data = decoded if decoded else result
+    mismatch = False
+    if symbol:
+        data, mismatch = _matching_symbol_data(data, symbol)
+    if result.get("isError"):
+        data = None
+    raw_price = _recursive_find(data, PRICE_KEYS)
+    price = _positive_price(raw_price)
+    invalid_price = raw_price is not None and price is None
     fields = {
-        "price": _to_float(_recursive_find(result, PRICE_KEYS)),
-        "name": _recursive_find(result, NAME_KEYS),
+        "price": price,
+        "name": _recursive_find(data, NAME_KEYS),
     }
     fields = {key: value for key, value in fields.items() if value is not None}
     return {
-        "is_error": bool(result.get("isError")),
+        "is_error": bool(result.get("isError")) or invalid_price or (mismatch and not fields),
         "text": text[:1200],
         "fields": fields,
     }
+
+
+def _json_safe_payload(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, Mapping):
+        return {key: _json_safe_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe_payload(item) for item in value]
+    return value
+
+
+def _matching_symbol_data(value: Any, symbol: str) -> tuple[Any, bool]:
+    identity_keys = {"symbol", "code", "stock_code", "security_code", "full_code",
+                     "tdx_code", "secid", "股票代码"}
+    if isinstance(value, Mapping):
+        for key, identity in value.items():
+            if str(key).lower() not in identity_keys or identity in (None, ""):
+                continue
+            normalized = normalize_symbol(str(identity))
+            if normalized[:2] in {"SH", "SZ", "BJ"}:
+                matches = normalized.lower() == _tdx_code(symbol)
+            elif len(normalized) > 2 and normalized[1] == ".":
+                market = {"0": "sz", "1": "sh", "2": "bj"}.get(normalized[0], "")
+                matches = f"{market}{normalized[2:]}" == _tdx_code(symbol)
+            else:
+                matches = normalized == normalize_symbol(symbol)
+            if not matches:
+                return None, True
+        filtered = {}
+        mismatch = False
+        for key, item in value.items():
+            filtered[key], rejected = _matching_symbol_data(item, symbol)
+            mismatch = mismatch or rejected
+        return filtered, mismatch
+    if isinstance(value, list):
+        filtered = []
+        mismatch = False
+        for item in value:
+            accepted, rejected = _matching_symbol_data(item, symbol)
+            filtered.append(accepted)
+            mismatch = mismatch or rejected
+        return filtered, mismatch
+    return value, False
 
 
 def _content_text(result: dict[str, Any]) -> str:
@@ -641,6 +706,14 @@ def _to_float(value: Any) -> float | None:
     if value is None or value == "":
         return None
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError, OverflowError):
         return None
+
+
+def _positive_price(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    number = _to_float(value)
+    return number if number is not None and number > 0 else None

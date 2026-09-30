@@ -52,6 +52,7 @@ from .repository import (
     list_watchlist,
     normalize_symbol,
     pool_symbols,
+    previous_compatible_decision_report,
     update_holding,
     update_stock_pool,
     update_watchlist_item,
@@ -59,6 +60,8 @@ from .repository import (
     utc_now,
 )
 from .reports import (
+    decision_report_comparison,
+    generate_decision_review,
     generate_daily_review,
     generate_stock_report,
     generate_trading_plan,
@@ -321,6 +324,8 @@ def _fetch_kline_and_cache(
     try:
         provider = get_market_data_provider(source)
         bars = provider.fetch_kline(normalized_symbol, period=period, limit=limit)
+        if not bars:
+            raise MarketDataError(f"No {period} K-lines returned for {normalized_symbol}")
         cached_bars = upsert_market_klines(
             db,
             symbol=normalized_symbol,
@@ -750,29 +755,32 @@ def api_generate_daily_review(
     persist: bool = True,
     signal_limit: int = Query(default=100, ge=1, le=500),
     pool_id: int | None = None,
+    source: str | None = None,
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
+    if pool_id is not None and get_stock_pool(db, pool_id) is None:
+        raise HTTPException(status_code=404, detail="Stock pool not found")
     symbols = pool_symbols(db, pool_id)
-    all_signals = [_signal_row_to_output(row) for row in list_signals(db, limit=signal_limit)]
+    signals = [_signal_row_to_output(row) for row in list_signals(db, symbols=symbols, limit=signal_limit)]
     all_holdings = latest_by_symbol(list_holdings(db))
-    all_fetch_logs = list_market_fetch_logs(db, limit=signal_limit)
-    if pool_id is None:
-        signals = all_signals
-        holdings = all_holdings
-        fetch_logs = all_fetch_logs
-    else:
-        signals = [
-            signal
-            for signal in all_signals
-            if normalize_symbol(signal["symbol"]) in symbols
-        ]
-        holdings = filter_rows_by_symbols(all_holdings, symbols) if symbols else []
-        fetch_logs = filter_rows_by_symbols(all_fetch_logs, symbols) if symbols else []
+    holdings = filter_rows_by_symbols(all_holdings, symbols)
+    fetch_logs = list_market_fetch_logs(db, symbols=symbols, source=source, limit=signal_limit)
     report = generate_daily_review(
         holdings=holdings,
         signals=signals,
         fetch_logs=fetch_logs,
     )
+    if pool_id is not None:
+        report["decision_review_status"] = "not_analyzed"
+        report["summary"] = "当前股票池和数据源还没有已保存的决策分析，请先运行持仓决策引擎。"
+    if pool_id is not None and symbols:
+        analyses = list_analysis_reports(db, report_type="stock_pool_decision_engine",
+                                         pool_id=pool_id, source=source, limit=1)
+        if analyses:
+            saved = analyses[0]
+            generate_decision_review(report, json.loads(saved["payload_json"]), symbols)
+            report["analysis_report_id"] = saved["id"]
+            report["decision_review_status"] = "saved_analysis"
     return _save_report(db, report=report, persist=persist)
 
 
@@ -877,6 +885,8 @@ def api_generate_workbench_actions(
     payload: WorkbenchActionRequest,
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
+    if payload.pool_id is not None and get_stock_pool(db, payload.pool_id) is None:
+        raise HTTPException(status_code=404, detail="Stock pool not found")
     symbols = pool_symbols(db, payload.pool_id)
     holdings = filter_rows_by_symbols(latest_by_symbol(list_holdings(db)), symbols)
     price_map = {
@@ -908,6 +918,8 @@ def api_generate_workbench_actions_from_market(
     payload: WorkbenchMarketActionRequest,
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
+    if payload.pool_id is not None and get_stock_pool(db, payload.pool_id) is None:
+        raise HTTPException(status_code=404, detail="Stock pool not found")
     symbols = pool_symbols(db, payload.pool_id)
     holdings = filter_rows_by_symbols(latest_by_symbol(list_holdings(db)), symbols)
     missing_prices: list[str] = []
@@ -1015,6 +1027,22 @@ def api_analyze_stock_pool_with_mcp(
     return _save_report(db, report=report, persist=payload.persist)
 
 
+def _analysis_watchlist(db: sqlite3.Connection, pool_id: int, max_symbols: int) -> list[dict]:
+    return latest_by_symbol(list_watchlist(db, pool_id=pool_id))[:max_symbols]
+
+
+def _kline_reference(kline: dict) -> dict:
+    bars = kline.get("bars") or []
+    return {
+        "symbol": kline.get("symbol"),
+        "source": kline.get("source"),
+        "period": kline.get("period"),
+        "bar_count": len(bars),
+        "as_of": max((str(bar["trade_date"]) for bar in bars), default=None),
+        "fetched_at": max((str(bar["fetched_at"]) for bar in bars if bar.get("fetched_at")), default=None),
+    }
+
+
 @app.post("/stock-pools/{pool_id}/market-analysis", response_model=ReportOut)
 def api_analyze_stock_pool_with_market_source(
     pool_id: int,
@@ -1025,7 +1053,7 @@ def api_analyze_stock_pool_with_market_source(
     if pool is None:
         raise HTTPException(status_code=404, detail="Stock pool not found")
 
-    watchlist = list_watchlist(db, pool_id=pool_id)
+    watchlist = _analysis_watchlist(db, pool_id, payload.max_symbols)
     symbols = [
         normalize_symbol(str(item["symbol"]))
         for item in watchlist
@@ -1052,14 +1080,14 @@ def api_analyze_stock_pool_with_market_source(
         watchlist_item = watchlist_by_symbol.get(normalized_symbol)
         if watchlist_item and quote.get("name") and not watchlist_item.get("name"):
             update_watchlist_item(db, int(watchlist_item["id"]), {"name": quote["name"]})
+            watchlist_item["name"] = quote["name"]
 
-    refreshed_watchlist = list_watchlist(db, pool_id=pool_id)
     report = generate_stock_pool_market_analysis(
         pool=pool,
         holdings=filter_rows_by_symbols(
             latest_by_symbol(list_holdings(db)), symbol_set
         ),
-        watchlist=refreshed_watchlist,
+        watchlist=watchlist,
         quotes=quotes,
         source=payload.source,
         failed_symbols=failed_symbols,
@@ -1078,7 +1106,7 @@ def api_analyze_stock_pool_with_chan(
     if pool is None:
         raise HTTPException(status_code=404, detail="Stock pool not found")
 
-    watchlist = list_watchlist(db, pool_id=pool_id)
+    watchlist = _analysis_watchlist(db, pool_id, payload.max_symbols)
     symbols = [
         normalize_symbol(str(item["symbol"]))
         for item in watchlist
@@ -1122,7 +1150,7 @@ def api_analyze_stock_pool_with_decision_engine(
     if pool is None:
         raise HTTPException(status_code=404, detail="Stock pool not found")
 
-    watchlist = list_watchlist(db, pool_id=pool_id)
+    watchlist = _analysis_watchlist(db, pool_id, payload.max_symbols)
     symbols = [
         normalize_symbol(str(item["symbol"]))
         for item in watchlist
@@ -1139,6 +1167,8 @@ def api_analyze_stock_pool_with_decision_engine(
     )
     index_bars: list[dict] = []
     failed_market_index_symbol: str | None = None
+    index_kline: dict | None = None
+    kline_references: list[dict] = []
     watchlist_by_symbol = {
         normalize_symbol(str(item["symbol"])): item for item in watchlist
     }
@@ -1172,6 +1202,7 @@ def api_analyze_stock_pool_with_decision_engine(
             watchlist_item = watchlist_by_symbol.get(normalized_symbol)
             if watchlist_item and quote.get("name") and not watchlist_item.get("name"):
                 update_watchlist_item(db, int(watchlist_item["id"]), {"name": quote["name"]})
+                watchlist_item["name"] = quote["name"]
 
         try:
             kline = _fetch_kline_and_cache(
@@ -1185,11 +1216,11 @@ def api_analyze_stock_pool_with_decision_engine(
             failed_kline_symbols.append(normalized_symbol)
             continue
         kline_by_symbol[normalized_symbol] = kline["bars"]
+        kline_references.append(_kline_reference(kline))
 
-    refreshed_watchlist = list_watchlist(db, pool_id=pool_id)
     report = generate_stock_pool_decision_engine(
         pool=pool,
-        watchlist=refreshed_watchlist,
+        watchlist=watchlist,
         holdings=filter_rows_by_symbols(
             latest_by_symbol(list_holdings(db)), symbol_set
         ),
@@ -1205,6 +1236,16 @@ def api_analyze_stock_pool_with_decision_engine(
         failed_market_index_symbol=failed_market_index_symbol,
         max_symbols=payload.max_symbols,
     )
+    report["data_refs"] = {
+        "quotes": [{key: quote.get(key) for key in ("symbol", "source", "snapshot_id", "fetched_at")}
+                   for quote in quotes.values()],
+        "klines": kline_references,
+        "market_index": _kline_reference(index_kline) if index_kline else None,
+    }
+    previous = previous_compatible_decision_report(db, report)
+    if previous:
+        report["comparison"] = decision_report_comparison(json.loads(previous["payload_json"]), report)
+        report["comparison"]["previous_report_id"] = previous["id"]
     return _save_report(db, report=report, persist=payload.persist)
 
 

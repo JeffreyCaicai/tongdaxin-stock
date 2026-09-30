@@ -2,7 +2,7 @@
 
 个人使用的 A 股持仓与目标股决策支持桌面软件。
 
-本项目定位是“股票驾驶舱 / 决策支持系统”：结构化持仓、目标池和行情数据，通过可审计规则生成买入、卖出、止损、止盈和观察信号，再由 AI 做解释与复盘。它不自动下单，不构成投资建议。
+本项目定位是个人股票分析与决策支持工作台：围绕关注股和持仓，展示行情、浮动盈亏、缠论结构和多证据情景分析。它不执行交易，不构成投资建议。
 
 ## 当前状态
 
@@ -13,6 +13,9 @@
 - 数据源已具备 provider 抽象：`source=tdx-official` 走通达信官方 Token 数据服务，`source=tongdaxin` / `source=eltdx` 走可选通达信协议 provider 和 `eltdx-mcp` 工具桥。
 - `source=eastmoney` 保留为零依赖兜底和交叉验证源；`source=mock` 仅用于离线演示和测试。
 - 工作台新增个人股票池：先选择股票池，再围绕该池内股票展示持仓、信号、复盘和池级分析。
+- 持仓决策引擎固定使用日线和未来 20 个交易日的观察期，默认大盘基准为上海指数 `SH000300`，避免与深圳股票代码混淆。
+- 上涨/震荡/下跌输出是规则式、未经历史校准的情景评分，不是已验证的预测概率。缺失、过期或不足的数据会明确标注并降低信心；行业和风格数据不可用时不伪造归因。
+- 结果按股票提供可展开的证据、因子窗口、数据时间和价格来源。同池、同数据源、同周期、同模型的报告可比较；复盘读取保存的决策分析快照，不自动重新拉行情。
 
 ## 目录结构
 
@@ -30,13 +33,19 @@ scripts/                   # 本地维护脚本
 
 ## 本地后端
 
-零依赖启动方式，会自动使用标准库 fallback API；如果已安装 FastAPI/uvicorn，则会启动完整 FastAPI 服务：
+已配置好虚拟环境时，推荐使用：
+
+```bash
+.venv/bin/python scripts/run_api.py
+```
+
+未安装 FastAPI/uvicorn 时，下列命令会启动标准库 fallback API。它仅支持部分旧版接口，不支持当前决策引擎和缠论分析；完整工作台需要下方的 FastAPI 环境。
 
 ```bash
 python3 scripts/run_api.py
 ```
 
-启动后打开 `http://127.0.0.1:8765/`，可以使用本地工作台录入持仓、生成信号、查看日报并运行回测。右上角可在中文和 English 之间切换。
+启动后打开 `http://127.0.0.1:8765/`，可以添加关注股、编辑持仓数量和成本价、查看盈亏并执行股票分析。右上角可在中文和 English 之间切换。
 
 完整 FastAPI 环境：
 
@@ -98,6 +107,9 @@ curl http://127.0.0.1:8765/health
 - `POST /mcp/eltdx/tools/{tool_name}`
 - `POST /mcp/tongdaxin/tools/{tool_name}`
 - `POST /stock-pools/{pool_id}/mcp-analysis`
+- `POST /stock-pools/{pool_id}/market-analysis`
+- `POST /stock-pools/{pool_id}/chan-analysis`
+- `POST /stock-pools/{pool_id}/decision-engine`
 - `POST /workbench/actions`
 - `POST /workbench/actions/from-market`
 

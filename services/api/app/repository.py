@@ -271,9 +271,9 @@ def list_watchlist(
     return [dict(row) for row in rows]
 
 
-def pool_symbols(connection: sqlite3.Connection, pool_id: int | None) -> set[str]:
+def pool_symbols(connection: sqlite3.Connection, pool_id: int | None) -> set[str] | None:
     if pool_id is None:
-        return set()
+        return None
     return {
         normalize_symbol(row["symbol"])
         for row in list_watchlist(connection, pool_id=pool_id)
@@ -281,9 +281,9 @@ def pool_symbols(connection: sqlite3.Connection, pool_id: int | None) -> set[str
 
 
 def filter_rows_by_symbols(
-    rows: list[dict[str, Any]], symbols: set[str]
+    rows: list[dict[str, Any]], symbols: set[str] | None
 ) -> list[dict[str, Any]]:
-    if not symbols:
+    if symbols is None:
         return rows
     return [row for row in rows if normalize_symbol(row["symbol"]) in symbols]
 
@@ -400,28 +400,25 @@ def list_signals(
     connection: sqlite3.Connection,
     *,
     symbol: str | None = None,
+    symbols: set[str] | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     limit = max(1, min(limit, 500))
+    if symbols is not None and not symbols:
+        return []
+    clauses: list[str] = []
+    params: list[Any] = []
     if symbol:
-        rows = connection.execute(
-            """
-            SELECT * FROM signals
-            WHERE symbol = ?
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-            """,
-            (normalize_symbol(symbol), limit),
-        ).fetchall()
-    else:
-        rows = connection.execute(
-            """
-            SELECT * FROM signals
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+        clauses.append("symbol = ?")
+        params.append(normalize_symbol(symbol))
+    if symbols is not None:
+        clauses.append(f"symbol IN ({','.join('?' for _ in symbols)})")
+        params.extend(sorted(normalize_symbol(value) for value in symbols))
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        f"SELECT * FROM signals {where} ORDER BY created_at DESC, id DESC LIMIT ?",
+        tuple(params + [limit]),
+    ).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -496,6 +493,7 @@ def upsert_market_klines(
 ) -> list[dict[str, Any]]:
     fetched_at = fetched_at or utc_now()
     normalized_symbol = normalize_symbol(symbol)
+    batch: dict[str, dict[str, Any]] = {}
     for bar in bars:
         connection.execute(
             """
@@ -529,14 +527,13 @@ def upsert_market_klines(
                 fetched_at,
             ),
         )
+        row = connection.execute(
+            "SELECT * FROM market_klines WHERE symbol = ? AND source = ? AND period = ? AND trade_date = ?",
+            (normalized_symbol, source, period, bar["trade_date"]),
+        ).fetchone()
+        batch[bar["trade_date"]] = dict(row)
     connection.commit()
-    return list_market_klines(
-        connection,
-        symbol=normalized_symbol,
-        source=source,
-        period=period,
-        limit=len(bars) if bars else 1,
-    )
+    return sorted(batch.values(), key=lambda row: row["trade_date"], reverse=True)
 
 
 def list_market_klines(
@@ -599,16 +596,22 @@ def list_market_fetch_logs(
     connection: sqlite3.Connection,
     *,
     symbol: str | None = None,
+    symbols: set[str] | None = None,
     source: str | None = None,
     data_type: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     limit = max(1, min(limit, 500))
+    if symbols is not None and not symbols:
+        return []
     clauses: list[str] = []
     params: list[Any] = []
     if symbol:
         clauses.append("symbol = ?")
         params.append(normalize_symbol(symbol))
+    if symbols is not None:
+        clauses.append(f"symbol IN ({','.join('?' for _ in symbols)})")
+        params.extend(sorted(normalize_symbol(value) for value in symbols))
     if source:
         clauses.append("source = ?")
         params.append(source)
@@ -666,6 +669,8 @@ def list_analysis_reports(
     *,
     report_type: str | None = None,
     symbol: str | None = None,
+    pool_id: int | None = None,
+    source: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     limit = max(1, min(limit, 500))
@@ -677,6 +682,12 @@ def list_analysis_reports(
     if symbol:
         clauses.append("symbol = ?")
         params.append(normalize_symbol(symbol))
+    if pool_id is not None:
+        clauses.append("json_extract(payload_json, '$.pool.id') = ?")
+        params.append(pool_id)
+    if source is not None:
+        clauses.append("json_extract(payload_json, '$.tool_plan.data_source') = ?")
+        params.append(source)
 
     where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     rows = connection.execute(
@@ -689,6 +700,29 @@ def list_analysis_reports(
         tuple(params + [limit]),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def previous_compatible_decision_report(
+    connection: sqlite3.Connection, report: dict[str, Any]
+) -> dict[str, Any] | None:
+    scope = report.get("scope") or {}
+    row = connection.execute(
+        """
+        SELECT * FROM analysis_reports
+        WHERE report_type = 'stock_pool_decision_engine'
+          AND json_extract(payload_json, '$.pool.id') = ?
+          AND json_extract(payload_json, '$.tool_plan.data_source') IS ?
+          AND json_extract(payload_json, '$.scope.period') IS ?
+          AND json_extract(payload_json, '$.scope.horizon_days') IS ?
+          AND json_extract(payload_json, '$.scope.market_index_symbol') IS ?
+          AND json_extract(payload_json, '$.model_version') IS ?
+        ORDER BY created_at DESC, id DESC LIMIT 1
+        """,
+        (report["pool"]["id"], (report.get("tool_plan") or {}).get("data_source"),
+         scope.get("period"), scope.get("horizon_days"), scope.get("market_index_symbol"),
+         report.get("model_version")),
+    ).fetchone()
+    return row_to_dict(row)
 
 
 def create_backtest(

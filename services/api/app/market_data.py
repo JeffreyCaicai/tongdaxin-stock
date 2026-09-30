@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import json
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
@@ -17,6 +18,8 @@ class MarketDataError(RuntimeError):
 
 
 class MarketDataProvider(Protocol):
+    """Accept bare stock codes or exchange-qualified identities (SH/SZ/BJ, 0/1/2.)."""
+
     name: str
 
     def fetch_quote(self, symbol: str) -> dict[str, Any]:
@@ -53,7 +56,8 @@ class MockMarketDataProvider:
     name = "mock"
 
     def fetch_quote(self, symbol: str) -> dict[str, Any]:
-        normalized_symbol = normalize_symbol(symbol)
+        identity = _market_identity(symbol)
+        normalized_symbol = identity.symbol
         base = _symbol_base_price(normalized_symbol)
         drift = _symbol_drift(normalized_symbol)
         current = round(base * (1 + drift), 3)
@@ -65,6 +69,8 @@ class MockMarketDataProvider:
             "symbol": normalized_symbol,
             "name": f"Mock {normalized_symbol}",
             "source": self.name,
+            "market": identity.market,
+            "instrument_type": identity.instrument_type,
             "price": current,
             "open": round(previous_close * 0.997, 3),
             "high": round(max(current, previous_close) * 1.012, 3),
@@ -88,7 +94,8 @@ class MockMarketDataProvider:
         if period != "daily":
             raise MarketDataError("Mock provider currently supports daily kline only")
 
-        normalized_symbol = normalize_symbol(symbol)
+        identity = _market_identity(symbol)
+        normalized_symbol = identity.symbol
         seed = _symbol_seed(normalized_symbol)
         base = _symbol_base_price(normalized_symbol)
         today = date.today()
@@ -109,6 +116,8 @@ class MockMarketDataProvider:
                 {
                     "symbol": normalized_symbol,
                     "source": self.name,
+                    "market": identity.market,
+                    "instrument_type": identity.instrument_type,
                     "period": period,
                     "trade_date": trade_date.isoformat(),
                     "open": round(open_price, 3),
@@ -208,7 +217,8 @@ class EltdxMarketDataProvider:
 
     def fetch_quote(self, symbol: str) -> dict[str, Any]:
         TdxClient, to_jsonable = _load_eltdx()
-        normalized_symbol = normalize_symbol(symbol)
+        identity = _market_identity(symbol)
+        normalized_symbol = identity.symbol
         tdx_code = _tdx_code(normalized_symbol)
         try:
             with TdxClient(timeout=5) as client:
@@ -234,6 +244,8 @@ class EltdxMarketDataProvider:
             "symbol": normalized_symbol,
             "name": _first_text(data, ("name", "stock_name", "名称")),
             "source": self.name,
+            "market": identity.market,
+            "instrument_type": identity.instrument_type,
             "price": price,
             "open": _first_float(data, ("open", "开盘", "今开")),
             "high": _first_float(data, ("high", "最高")),
@@ -255,11 +267,14 @@ class EltdxMarketDataProvider:
         limit: int = 120,
     ) -> list[dict[str, Any]]:
         TdxClient, to_jsonable = _load_eltdx()
-        normalized_symbol = normalize_symbol(symbol)
+        identity = _market_identity(symbol)
+        normalized_symbol = identity.symbol
         tdx_code = _tdx_code(normalized_symbol)
         try:
             with TdxClient(timeout=5) as client:
-                series = client.get_kline(_tdx_period(period), tdx_code, count=limit)
+                series = client.get_kline(
+                    _tdx_period(period), tdx_code, count=limit, kind=identity.instrument_type
+                )
         except Exception as exc:
             raise MarketDataError(
                 f"eltdx kline request failed for {normalized_symbol}: {exc}. "
@@ -278,6 +293,8 @@ class EltdxMarketDataProvider:
                 {
                     "symbol": normalized_symbol,
                     "source": self.name,
+                    "market": identity.market,
+                    "instrument_type": identity.instrument_type,
                     "period": "daily",
                     "trade_date": str(
                         _first_value(item, ("trade_date", "date", "time", "日期", "时间"))
@@ -298,12 +315,13 @@ class TdxOfficialMarketDataProvider:
     name = "tdx-official"
 
     def fetch_quote(self, symbol: str) -> dict[str, Any]:
-        normalized_symbol = normalize_symbol(symbol)
+        identity = _market_identity(symbol)
+        normalized_symbol = identity.symbol
         payload = _tdx_official_post(
             "TdxShare.PBHQInfo",
             {
                 "Head": {"Target": "0", "CharSet": "UTF8"},
-                "Code": normalized_symbol,
+                "Code": identity.code,
                 "Setcode": _tdx_official_setcode(normalized_symbol),
                 "HasHQInfo": "1",
                 "HasExtInfo": "1",
@@ -348,6 +366,8 @@ class TdxOfficialMarketDataProvider:
             "symbol": normalized_symbol,
             "name": _first_text(base_info, ("Name", "name", "名称")),
             "source": self.name,
+            "market": identity.market,
+            "instrument_type": identity.instrument_type,
             "price": price,
             "open": _first_float(hq_info, ("Open", "open", "今开", "开盘")),
             "high": _first_float(hq_info, ("High", "high", "最高")),
@@ -369,12 +389,13 @@ class TdxOfficialMarketDataProvider:
         period: str = "daily",
         limit: int = 120,
     ) -> list[dict[str, Any]]:
-        normalized_symbol = normalize_symbol(symbol)
+        identity = _market_identity(symbol)
+        normalized_symbol = identity.symbol
         payload = _tdx_official_post(
             "TdxShare.PBFXT",
             {
                 "Head": {"Target": 0, "CharSet": "UTF8"},
-                "Code": normalized_symbol,
+                "Code": identity.code,
                 "Setcode": int(_tdx_official_setcode(normalized_symbol)),
                 "Period": int(_tdx_official_period(period)),
                 "Startxh": 0,
@@ -410,6 +431,8 @@ class TdxOfficialMarketDataProvider:
                 {
                     "symbol": normalized_symbol,
                     "source": self.name,
+                    "market": identity.market,
+                    "instrument_type": identity.instrument_type,
                     "period": period,
                     "trade_date": _tdx_official_date_text(trade_date),
                     "open": _required_tdx_official_float(
@@ -459,7 +482,8 @@ class EastmoneyMarketDataProvider:
     name = "eastmoney"
 
     def fetch_quote(self, symbol: str) -> dict[str, Any]:
-        normalized_symbol = normalize_symbol(symbol)
+        identity = _market_identity(symbol)
+        normalized_symbol = identity.symbol
         data = _eastmoney_json(
             "https://push2.eastmoney.com/api/qt/stock/get",
             {
@@ -479,6 +503,8 @@ class EastmoneyMarketDataProvider:
             "symbol": normalized_symbol,
             "name": data.get("f58"),
             "source": self.name,
+            "market": identity.market,
+            "instrument_type": identity.instrument_type,
             "price": price,
             "open": _eastmoney_price(data.get("f46")),
             "high": _eastmoney_price(data.get("f44")),
@@ -502,7 +528,8 @@ class EastmoneyMarketDataProvider:
         if period != "daily":
             raise MarketDataError("Eastmoney provider currently supports daily kline only")
 
-        normalized_symbol = normalize_symbol(symbol)
+        identity = _market_identity(symbol)
+        normalized_symbol = identity.symbol
         data = _eastmoney_json(
             "https://push2his.eastmoney.com/api/qt/stock/kline/get",
             {
@@ -527,6 +554,8 @@ class EastmoneyMarketDataProvider:
                 {
                     "symbol": normalized_symbol,
                     "source": self.name,
+                    "market": identity.market,
+                    "instrument_type": identity.instrument_type,
                     "period": period,
                     "trade_date": fields[0],
                     "open": _required_float(fields[1], "开盘"),
@@ -650,10 +679,43 @@ def _is_a_share_symbol(symbol: str) -> bool:
 
 
 def _market_name_for_symbol(symbol: str) -> str:
-    normalized_symbol = normalize_symbol(symbol)
-    if normalized_symbol.startswith(("6", "8")):
-        return "SH"
-    return "SZ"
+    return _market_identity(symbol).market
+
+
+@dataclass(frozen=True)
+class _MarketIdentity:
+    symbol: str
+    code: str
+    market: str
+    instrument_type: str
+
+
+def _market_identity(symbol: str) -> _MarketIdentity:
+    normalized = normalize_symbol(symbol)
+    market = None
+    code = normalized
+    if normalized[:2] in {"SH", "SZ", "BJ"}:
+        market, code = normalized[:2], normalized[2:]
+    elif len(normalized) > 2 and normalized[1] == ".":
+        market = {"0": "SZ", "1": "SH", "2": "BJ"}.get(normalized[0])
+        if market:
+            code = normalized[2:]
+    if market:
+        if len(code) != 6 or not code.isascii() or not code.isdigit():
+            raise MarketDataError(f"Invalid qualified market symbol: {normalized}")
+        canonical = f"{market}{code}"
+        kind = "index" if (
+            market == "SH" and code.startswith("000")
+            or market == "SZ" and code.startswith("399")
+        ) else "stock"
+        return _MarketIdentity(canonical, code, market, kind)
+    if code.startswith(("4", "8")):
+        market = "BJ"
+    elif code.startswith(("5", "6", "9")):
+        market = "SH"
+    else:
+        market = "SZ"
+    return _MarketIdentity(normalized, code, market, "stock")
 
 
 def _symbol_base_price(symbol: str) -> float:
@@ -692,7 +754,10 @@ def _load_eltdx() -> tuple[Any, Any | None]:
 
 
 def _tdx_code(symbol: str) -> str:
-    normalized_symbol = normalize_symbol(symbol)
+    identity = _market_identity(symbol)
+    if identity.symbol != identity.code:
+        return f"{identity.market.lower()}{identity.code}"
+    normalized_symbol = identity.code
     if normalized_symbol.startswith(("4", "8", "9")):
         return f"bj{normalized_symbol}"
     if normalized_symbol.startswith(("5", "6")):
@@ -712,12 +777,7 @@ def _tdx_period(period: str) -> str:
 
 
 def _tdx_official_setcode(symbol: str) -> str:
-    normalized_symbol = normalize_symbol(symbol)
-    if normalized_symbol.startswith(("4", "8")):
-        return "2"
-    if normalized_symbol.startswith(("5", "6", "9")):
-        return "1"
-    return "0"
+    return {"SH": "1", "SZ": "0", "BJ": "2"}[_market_identity(symbol).market]
 
 
 def _tdx_official_period(period: str) -> str:
@@ -844,19 +904,13 @@ def _tdx_official_date_text(value: Any) -> str:
 
 
 def _required_tdx_official_float(value: Any, field_name: str) -> float:
-    parsed = _safe_float(value)
-    if parsed is None:
-        raise MarketDataError(f"tdx-official returned empty numeric field: {field_name}")
-    return parsed
+    return _required_float(value, field_name)
 
 
 def _eastmoney_secid(symbol: str) -> str:
-    normalized_symbol = normalize_symbol(symbol)
-    if normalized_symbol.startswith(("5", "6", "9")):
-        market_id = "1"
-    else:
-        market_id = "0"
-    return f"{market_id}.{normalized_symbol}"
+    identity = _market_identity(symbol)
+    market_id = "1" if identity.market == "SH" else "0"
+    return f"{market_id}.{identity.code}"
 
 
 def _eastmoney_json(base_url: str, params: dict[str, str]) -> dict[str, Any]:
@@ -891,10 +945,7 @@ def _eastmoney_price(value: Any) -> float | None:
 
 
 def _required_eastmoney_price(value: Any, field_name: str) -> float:
-    parsed = _eastmoney_price(value)
-    if parsed is None:
-        raise MarketDataError(f"Eastmoney returned empty numeric field: {field_name}")
-    return parsed
+    return _required_float(_eastmoney_price(value), field_name)
 
 
 def _eastmoney_percent(value: Any) -> float | None:
@@ -908,17 +959,16 @@ def _safe_float(value: Any) -> float | None:
     if value is None:
         return None
     try:
-        if value != value:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
+        parsed = float(value)
+        return parsed if math.isfinite(parsed) else None
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
 def _required_float(value: Any, field_name: str) -> float:
     parsed = _safe_float(value)
-    if parsed is None:
-        raise MarketDataError(f"AkShare returned empty numeric field: {field_name}")
+    if parsed is None or parsed <= 0:
+        raise MarketDataError(f"Market data returned invalid positive price field: {field_name}")
     return parsed
 
 
@@ -950,10 +1000,7 @@ def _first_required_float(
     keys: tuple[str, ...],
     field_name: str,
 ) -> float:
-    parsed = _first_float(data, keys)
-    if parsed is None:
-        raise MarketDataError(f"eltdx returned empty numeric field: {field_name}")
-    return parsed
+    return _required_float(_first_value(data, keys), field_name)
 
 
 def _first_text(data: dict[str, Any], keys: tuple[str, ...]) -> str | None:

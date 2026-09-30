@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -254,12 +254,12 @@ class StockPoolChanAnalysisRequest(BaseModel):
 
 class StockPoolDecisionEngineRequest(BaseModel):
     source: str = "tdx-official"
-    period: str = "daily"
+    period: Literal["daily"] = "daily"
     persist: bool = True
     max_symbols: int = Field(default=30, ge=1, le=100)
     kline_limit: int = Field(default=240, ge=35, le=1000)
-    horizon_days: int = Field(default=20, ge=5, le=120)
-    market_index_symbol: str | None = Field(default="000300", min_length=1, max_length=16)
+    horizon_days: Literal[20] = 20
+    market_index_symbol: str | None = Field(default="SH000300", min_length=1, max_length=16)
 
 
 class IndicatorSnapshotOut(BaseModel):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from typing import Any
 
 from .repository import normalize_symbol, utc_now
@@ -154,6 +156,78 @@ def generate_daily_review(
             "compare_with_thesis",
         ],
     }
+
+
+def decision_report_comparison(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    previous_items = {item["symbol"]: item for item in previous.get("items", [])}
+    current_items = {item["symbol"]: item for item in current.get("items", [])}
+    changes = []
+    for symbol, item in current_items.items():
+        old = previous_items.get(symbol)
+        if old is None:
+            continue
+        old_scores = old.get("probabilities") or {}
+        new_scores = item.get("probabilities") or {}
+        changes.append({
+            "symbol": symbol,
+            "previous_probabilities": old_scores,
+            "current_probabilities": new_scores,
+            "probability_changes": {
+                scenario: round(new_scores[scenario] - old_scores[scenario], 4)
+                for scenario in ("up", "range", "down")
+                if scenario in old_scores and scenario in new_scores
+            },
+            "previous_decision": (old.get("decision") or {}).get("key"),
+            "current_decision": (item.get("decision") or {}).get("key"),
+        })
+    return {
+        "previous_generated_at": previous.get("generated_at"),
+        "items": changes,
+        "added_symbols": sorted(set(current_items) - set(previous_items)),
+        "removed_symbols": sorted(set(previous_items) - set(current_items)),
+    }
+
+
+def generate_decision_review(
+    review: dict[str, Any], analysis: dict[str, Any], symbols: set[str] | None
+) -> dict[str, Any]:
+    analysis = deepcopy(analysis)
+    original_symbols = {item["symbol"] for item in analysis.get("items", [])}
+    if symbols is not None:
+        analysis["items"] = [item for item in analysis.get("items", []) if item["symbol"] in symbols]
+    items = analysis.get("items", [])
+    analysis.setdefault("scope", {})["symbol_count"] = len(items)
+    analysis["review_scope"] = {
+        "original_symbol_count": len(original_symbols),
+        "not_analyzed_symbols": sorted(symbols - original_symbols) if symbols is not None else [],
+        "excluded_symbols": sorted(original_symbols - symbols) if symbols is not None else [],
+    }
+    counts = dict.fromkeys(("up", "range", "down"), 0)
+    for item in items:
+        scores = item.get("probabilities") or {}
+        if all(isinstance(scores.get(key), (int, float)) for key in counts):
+            counts[max(counts, key=lambda key: scores[key])] += 1
+    analysis["scenario_counts"] = counts
+    quality = analysis.setdefault("data_quality", {})
+    for kind in ("quote", "kline"):
+        key = f"failed_{kind}_symbols"
+        failures = quality.get(key, [])
+        quality[key] = [symbol for symbol in failures if symbols is None or symbol in symbols]
+        quality[f"failed_{kind}_count"] = len(quality[key])
+    scope = analysis["review_scope"]
+    if scope["excluded_symbols"] or scope["not_analyzed_symbols"]:
+        analysis["summary"] = (
+            f"复盘已保存分析：当前股票池可查看 {len(items)} 只股票的历史分析。"
+            f"股票池成员已变化，{len(scope['not_analyzed_symbols'])} 只股票尚无本次分析结果；"
+            "需重新运行决策引擎更新，以下评分和市场状态仍来自原分析快照。"
+        )
+        analysis["next_steps"] = [
+            "重新分析股票池；尚未分析：" + (", ".join(scope["not_analyzed_symbols"]) or "无"),
+            *(analysis.get("next_steps") or []),
+        ]
+    review["decision_analysis"] = analysis
+    review["analysis_generated_at"] = analysis.get("generated_at")
+    return review
 
 
 def _holding_detail(holding: dict[str, Any]) -> dict[str, Any]:
