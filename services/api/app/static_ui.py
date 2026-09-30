@@ -123,6 +123,22 @@ def index_html() -> str:
     }
     .analysis-panel h2 { font-size: 18px; }
     .analysis-panel h3 { font-size: 14px; }
+    .opportunity-summary { display:flex; gap:24px; flex-wrap:wrap; padding:12px 0; border-bottom:1px solid var(--line); }
+    .opportunity-summary strong { display:block; font-size:22px; font-variant-numeric:tabular-nums; }
+    .opportunity-summary span { font-size:12px; color:var(--text-muted); }
+    .opportunity-row { padding:16px 0; border-bottom:1px solid var(--line); }
+    .opportunity-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .opportunity-head h3 { margin:0; font-size:16px; }
+    .opportunity-head small { font-weight:400; color:var(--text-muted); }
+    .opportunity-columns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin-top:12px; }
+    .opportunity-columns p { margin:5px 0; font-size:13px; overflow-wrap:anywhere; }
+    .opportunity-columns h4 { margin:0; font-size:12px; color:var(--text-muted); }
+    .opportunity-score { display:flex; height:6px; width:160px; max-width:100%; overflow:hidden; background:#edf0ea; }
+    .opportunity-score i { display:block; height:6px; }
+    .opportunity-grade { font-weight:600; color:var(--accent); }
+    .opportunity-row[data-level="wait"] .opportunity-grade { color:#936b18; }
+    .opportunity-progress { width:100%; accent-color:var(--accent); }
+    @media (max-width:700px) { .opportunity-columns { grid-template-columns:1fr; gap:10px; } }
     .decision-overview table { table-layout: fixed; }
     .decision-overview th, .decision-overview td { overflow-wrap: anywhere; }
     .stock-detail { border-bottom: 1px solid var(--line); padding: 12px 0; }
@@ -262,6 +278,8 @@ def index_html() -> str:
     </aside>
     <section>
       <div class="action-bar toolbar pool-actions">
+        <button onclick="runOpportunities()" data-i18n="marketOpportunities">市场机会推荐</button>
+        <button class="secondary" onclick="openOpportunityHistory()" data-i18n="opportunityHistory">推荐记录</button>
         <button onclick="runDecisionEngine()" data-i18n="runDecisionEngine">持仓决策引擎</button>
         <button onclick="analyzePool()" data-i18n="analyzePool">分析股票池行情</button>
         <button class="secondary" onclick="runChanAnalysis()" data-i18n="runChanAnalysis">缠论结构分析</button>
@@ -716,6 +734,66 @@ def index_html() -> str:
         initial_thesis: "Original Thesis"
       }
     };
+    Object.assign(translations.zh, {
+      outside_stock_scope:"不在A股个股范围内",
+      queued:"排队中", running:"运行中", completed:"已完成", cancelled:"已取消", interrupted:"已中断", failed:"失败",
+      opportunityReconnect:"进度连接暂时中断，正在重试", opportunityResume:"重新连接进度",
+      marketOpportunities:"市场机会推荐", opportunityHistory:"推荐记录", opportunityTitle:"市场机会推荐 · 20交易日",
+      opportunityScope:"条件选股候选 + 个人关注及持仓", opportunityScan:"扫描", opportunityCandidates:"池外候选",
+      opportunityPersonal:"个人股票", opportunitySelected:"入选", opportunityExcluded:"数据或范围不合格",
+      opportunityEmpty:"本次没有符合标准的推荐。可展开全部评价查看具体原因。",
+      opportunityUnsupported:"市场候选发现需要选择通达信官方 Token 数据源。",
+      opportunityFailed:"扫描未完成，请检查连接后重试。已保存的历史记录仍可查看。",
+      opportunityCancel:"取消扫描", opportunityCancelled:"扫描已取消", opportunityInterrupted:"扫描因服务重启中断，请重新扫描。",
+      opportunityDiscovering:"正在获取市场候选", opportunityAnalyzing:"正在分析日线与证据",
+      opportunityAll:"全部评价", opportunityTop:"推荐名单", opportunityOrigin:"来源", opportunityAny:"全部来源",
+      opportunityNew:"新发现", opportunityWatched:"已关注", opportunityHeld:"已持仓",
+      opportunityPriority:"优先研究", opportunityWait:"等待确认", opportunityNotSelected:"未入选", opportunityInvalid:"数据待补齐/不在范围",
+      opportunityBasis:"支持依据", opportunityRisk:"风险与缺口", opportunityConditions:"确认与失效参考",
+      opportunityNoOpposition:"现有技术证据未显示明显反对项；基本面和事件风险尚未覆盖。",
+      opportunityTechnical:"当前为技术证据筛选；行业、风格、财务和事件尚未覆盖。排序分和情景分数未经胜率校准。",
+      opportunityCoverage:"候选来源与覆盖", opportunityPartial:"候选或行情读取有失败，本次覆盖不完整。",
+      opportunityScore:"排序分", opportunityAsOf:"日线截至", opportunityAdd:"加入关注", opportunityAdded:"已加入关注",
+      opportunityErrors:"失败明细", opportunitySaved:"已保存", opportunityDemo:"模拟数据演示",
+      opportunityConfirm:"等待价格在MA20附近企稳，并保持相对指数强势后复核。",
+      opportunityInvalidation:"日线收盘低于以下参考价时重新评估原假设",
+      opportunityRefresh:"结果按扫描时的数据保存，最新判断请重新扫描。",
+      history_under_120:"历史日线不足120根", missing_name:"股票名称缺失", special_treatment:"ST或退市股票",
+      low_or_unknown_liquidity:"成交额不足2000万元或缺失", inactive_or_unknown:"成交量为零或缺失",
+      price_basis_mismatch:"现价与日线价格口径明显不一致", no_index_outperformance:"20/60日均未跑赢指数",
+      high_risk:"技术风险较高", extended_price:"价格偏离均线较远，等待回踩", weak_evidence:"支持证据未达入选标准",
+      screen_unavailable:"选股接口失败或无权限", quote_unavailable:"现价读取失败", kline_unavailable:"日线读取失败", index_unavailable:"基准指数读取失败"
+    });
+    Object.assign(translations.en, {
+      outside_stock_scope:"Outside the A-share stock scope",
+      queued:"Queued", running:"Running", completed:"Completed", cancelled:"Cancelled", interrupted:"Interrupted", failed:"Failed",
+      opportunityReconnect:"Progress connection interrupted; retrying", opportunityResume:"Reconnect to scan",
+      marketOpportunities:"Market Opportunities", opportunityHistory:"Recommendation History", opportunityTitle:"Market Opportunities · 20 sessions",
+      opportunityScope:"Screened candidates + personal watchlist and holdings", opportunityScan:"Scan", opportunityCandidates:"New candidates",
+      opportunityPersonal:"Personal stocks", opportunitySelected:"Selected", opportunityExcluded:"Quality / scope exclusions",
+      opportunityEmpty:"No stocks qualified in this scan. Expand all assessments to see why.",
+      opportunityUnsupported:"Market discovery requires the official Tongdaxin Token source.",
+      opportunityFailed:"Scan failed. Check connectivity and retry. Saved history remains available.",
+      opportunityCancel:"Cancel scan", opportunityCancelled:"Scan cancelled", opportunityInterrupted:"Server restart interrupted this scan. Run it again.",
+      opportunityDiscovering:"Discovering market candidates", opportunityAnalyzing:"Analyzing daily bars and evidence",
+      opportunityAll:"All assessments", opportunityTop:"Shortlist", opportunityOrigin:"Origin", opportunityAny:"All origins",
+      opportunityNew:"New discovery", opportunityWatched:"Watching", opportunityHeld:"Held",
+      opportunityPriority:"Research first", opportunityWait:"Await confirmation", opportunityNotSelected:"Not selected", opportunityInvalid:"Quality / scope exclusion",
+      opportunityBasis:"Supporting evidence", opportunityRisk:"Risks and gaps", opportunityConditions:"Confirmation and invalidation",
+      opportunityNoOpposition:"No clear opposing technical evidence. Fundamental and event risks are not covered.",
+      opportunityTechnical:"Technical screening only; industry, style, financials and events are not covered. Ranking and scenario scores are uncalibrated.",
+      opportunityCoverage:"Candidate sources and coverage", opportunityPartial:"Some candidate or market requests failed; coverage is incomplete.",
+      opportunityScore:"Rank score", opportunityAsOf:"Daily bars through", opportunityAdd:"Add to watchlist", opportunityAdded:"Added to watchlist",
+      opportunityErrors:"Request failures", opportunitySaved:"Saved", opportunityDemo:"Simulated data",
+      opportunityConfirm:"Review after price stabilizes near MA20 and maintains strength versus the index.",
+      opportunityInvalidation:"Reassess the thesis if a daily close falls below this reference",
+      opportunityRefresh:"Results retain scan-time data. Run a new scan for an updated assessment.",
+      history_under_120:"Fewer than 120 daily bars", missing_name:"Missing name", special_treatment:"ST or delisting security",
+      low_or_unknown_liquidity:"Turnover below CNY20m or unavailable", inactive_or_unknown:"Zero or missing volume",
+      price_basis_mismatch:"Quote and daily-bar prices disagree", no_index_outperformance:"No 20/60-session index outperformance",
+      high_risk:"High technical risk", extended_price:"Extended above the moving average", weak_evidence:"Evidence below selection threshold",
+      screen_unavailable:"Screener unavailable or unauthorized", quote_unavailable:"Quote unavailable", kline_unavailable:"Daily bars unavailable", index_unavailable:"Benchmark unavailable"
+    });
     const enumText = {
       zh: {
         calendar_index: "指数交易日历",
@@ -871,8 +949,9 @@ def index_html() -> str:
       }
     };
     let currentLanguage = localStorage.getItem("tdx_language") || "zh";
+    let cachedHealth = null;
     document.getElementById("languageSelect").value = currentLanguage;
-    let currentMarketSource = localStorage.getItem("tdx_market_source") || "tongdaxin";
+    let currentMarketSource = localStorage.getItem("tdx_market_source") || "tdx-official";
     document.getElementById("marketSourceSelect").value = currentMarketSource;
 
     async function api(path, options) {
@@ -908,6 +987,7 @@ def index_html() -> str:
       });
       rerenderCachedPanels();
       renderSourceStatus();
+      if (cachedHealth) renderHealth();
     }
     function setMarketSource(source) {
       currentMarketSource = source;
@@ -926,6 +1006,7 @@ def index_html() -> str:
       });
     }
     let cachedReview = null;
+    let opportunityTimer = null;
     let cachedPools = [];
     let cachedWatchlist = [];
     let cachedHoldings = [];
@@ -937,7 +1018,11 @@ def index_html() -> str:
     let nameEditedManually = false;
 
     async function checkHealth() {
-      const health = await api("/health");
+      cachedHealth = await api("/health");
+      renderHealth();
+    }
+    function renderHealth() {
+      const health = cachedHealth;
       document.getElementById("health").textContent = health.mode ? `${t("running")} (${t("mode")}: ${health.mode})` : t("running");
     }
     async function addSymbolToPool() {
@@ -988,6 +1073,7 @@ def index_html() -> str:
       return value ? Number(value) : null;
     }
     function invalidateAnalysis() {
+      if (opportunityTimer !== null) clearTimeout(opportunityTimer);
       ++analysisSeq;
       analysisController?.abort();
       analysisController = null;
@@ -1019,6 +1105,132 @@ def index_html() -> str:
       } finally {
         if (sequence === analysisSeq) analysisController = null;
       }
+    }
+    async function runOpportunities() {
+      if (!["tdx-official", "mock"].includes(marketSource())) {
+        document.getElementById("actionStatus").textContent = t("opportunityUnsupported");
+        return;
+      }
+      if (!selectedPoolId()) return;
+      return requestAnalysis(`/stock-pools/${selectedPoolId()}/opportunities`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({source:marketSource(), outside_limit:40})
+      }, renderOpportunityJob, "opportunityFailed");
+    }
+    function renderOpportunityJob(run, retry = 0) {
+      if (run.source !== marketSource()) return;
+      cachedReview = {...run, report_type:"opportunity_job"};
+      if (run.status === "completed") { renderOpportunities(run.result); return; }
+      const terminal = {cancelled:"opportunityCancelled", interrupted:"opportunityInterrupted", failed:"opportunityFailed"};
+      const p = run.progress || {};
+      const active = ["queued", "running"].includes(run.status);
+      document.getElementById("review").innerHTML = `<h3>${t("opportunityTitle")}</h3>
+        <p role="status">${t(terminal[run.status] || (p.stage === "discovering" ? "opportunityDiscovering" : "opportunityAnalyzing"))} ${active ? `${p.completed || 0} / ${p.total || "-"}` : ""}</p>
+        ${active ? `<progress class="opportunity-progress" max="${p.total || 1}" value="${p.completed || 0}"></progress><button class="secondary" onclick="cancelOpportunity('${run.id}')">${t("opportunityCancel")}</button>` : ""}`;
+      if (!active) return;
+      const sequence = analysisSeq, source = marketSource();
+      if (opportunityTimer !== null) clearTimeout(opportunityTimer);
+      opportunityTimer = setTimeout(async () => {
+        if (sequence !== analysisSeq || source !== marketSource()) return;
+        try {
+          const next = await api(`/opportunities/${run.id}`);
+          if (sequence === analysisSeq && source === marketSource()) {
+            document.getElementById("actionStatus").textContent = "";
+            renderOpportunityJob(next);
+          }
+        } catch (error) {
+          if (sequence !== analysisSeq || source !== marketSource()) return;
+          document.getElementById("actionStatus").textContent = t("opportunityReconnect");
+          if (retry < 3) renderOpportunityJob(run, retry + 1);
+          else document.getElementById("review").innerHTML += `<button class="secondary" onclick="openOpportunityRun('${run.id}')">${t("opportunityResume")}</button>`;
+        }
+      }, 1200 * (2 ** retry));
+    }
+    async function cancelOpportunity(id) {
+      try { await api(`/opportunities/${id}`, {method:"DELETE"}); }
+      catch (error) { document.getElementById("actionStatus").textContent = error.message; }
+    }
+    async function openOpportunityHistory() {
+      if (!selectedPoolId()) return;
+      return requestAnalysis(`/stock-pools/${selectedPoolId()}/opportunities?source=${encodeURIComponent(marketSource())}`, {}, renderOpportunityHistory, "opportunityFailed");
+    }
+    function renderOpportunityHistory(rows) {
+      cachedReview = {report_type:"opportunity_history", rows};
+      document.getElementById("review").innerHTML = `<h3>${t("opportunityHistory")}</h3>${rows.length ? rows.map(row => `<p><button class="secondary" onclick="openOpportunityRun('${row.id}')">${escapeHtml(shortTime(row.created_at))}</button> ${escapeHtml(t(row.status))}</p>`).join("") : `<p>${t("noData")}</p>`}`;
+    }
+    function openOpportunityRun(id) {
+      return requestAnalysis(`/opportunities/${id}`, {}, renderOpportunityJob, "opportunityFailed");
+    }
+    function opportunityLabel(value) {
+      const keys = {new:"opportunityNew", watched:"opportunityWatched", held:"opportunityHeld", priority:"opportunityPriority", wait:"opportunityWait", not_selected:"opportunityNotSelected", excluded:"opportunityInvalid"};
+      return t(keys[value] || value) !== value ? t(keys[value] || value) : enumLabel(value);
+    }
+    function opportunityIdentity(symbol) {
+      const text = normalizeSymbolText(symbol).replace(/^1[.]/, "SH").replace(/^0[.]/, "SZ").replace(/^2[.]/, "BJ");
+      if (/^SH(?:60|68)[0-9]{4}$/.test(text) || /^SZ(?:00|30)[0-9]{4}$/.test(text)) return text.slice(2);
+      if (/^(?:[48][0-9]{5}|92[0-9]{4})$/.test(text)) return `BJ${text}`;
+      return text;
+    }
+    function renderOpportunities(report) {
+      const scope = report.scope || {}, d = report.discovery || {};
+      document.getElementById("review").innerHTML = `<h3>${t("opportunityTitle")}</h3>
+        <p class="status">${escapeHtml(report.source)} · ${escapeHtml(shortTime(report.generated_at))} · ${escapeHtml(report.benchmark)} ${d.is_demo ? ` · ${t("opportunityDemo")}` : ""}</p>
+        <div class="opportunity-summary">${[[scope.new,"opportunityCandidates"],[scope.personal,"opportunityPersonal"],[scope.recommended,"opportunitySelected"],[scope.excluded,"opportunityExcluded"]].map(([n,key]) => `<div><strong>${n ?? 0}</strong><span>${t(key)}</span></div>`).join("")}</div>
+        <p class="status">${t("opportunityTechnical")}</p>
+        ${d.errors?.length || report.failures?.length ? `<p role="status">${t("opportunityPartial")}</p>` : ""}
+        <div class="toolbar"><select id="opportunity-origin" aria-label="${t("opportunityOrigin")}" onchange="renderOpportunityRows()"><option value="all">${t("opportunityAny")}</option>${["new","watched","held"].map(v=>`<option value="${v}">${opportunityLabel(v)}</option>`).join("")}</select>
+          <select id="opportunity-view" aria-label="${t("opportunityAll")}" onchange="renderOpportunityRows()"><option value="top">${t("opportunityTop")}</option><option value="all">${t("opportunityAll")} (${scope.analyzed || 0})</option></select></div>
+        <div id="opportunity-rows"></div>
+        <details class="stock-detail"><summary>${t("opportunityCoverage")}</summary>
+          <p>${t("opportunityScope")} · ${d.candidate_count || 0} / ${scope.analyzed || 0}</p>
+          ${(d.queries || []).map(q=>`<p>${escapeHtml(q.query)}<br>${currentLanguage === "zh" ? "读取 / 返回总数" : "Read / reported total"}: ${q.rows_read} / ${q.total}${q.truncated ? (currentLanguage === "zh" ? " · 部分读取" : " · partial") : ""}</p>`).join("")}
+          ${(d.errors || []).map(e=>`<p>${escapeHtml(e.theme)}: ${opportunityLabel(e.reason)}</p>`).join("")}
+          ${(report.failures || []).map(e=>`<p>${escapeHtml(e.symbol)}: ${opportunityLabel(e.kind)}</p>`).join("")}
+          <p>${t("opportunityRefresh")}</p></details>`;
+      renderOpportunityRows(report);
+    }
+    function renderOpportunityRows(provided) {
+      const report = provided || cachedReview?.result;
+      if (!report) return;
+      const origin = document.getElementById("opportunity-origin").value || "all";
+      const all = document.getElementById("opportunity-view").value === "all";
+      const rows = (report.items || []).filter(item => (all || report.selected.includes(item.symbol)) && (origin === "all" || item.origin === origin));
+      document.getElementById("opportunity-rows").innerHTML = rows.length ? rows.map(item => {
+        const reasons = (item.selection_reasons || []).map(opportunityLabel);
+        const opposition = (item.opposing_evidence || []).slice(0,2).map(e => `${e.source}: ${e.observation}`);
+        const support = (item.supporting_evidence || []).slice(0,3).map(e => `${e.source}: ${e.observation}`);
+        const c = item.conditions || {}, p = item.probabilities || {};
+        const added = cachedWatchlist.some(row => opportunityIdentity(row.symbol) === opportunityIdentity(item.symbol));
+        return `<article class="opportunity-row" data-level="${escapeHtml(item.level)}">
+          <div class="opportunity-head"><h3>${escapeHtml(item.name || item.symbol)} <small>${escapeHtml(item.symbol)} · ${opportunityLabel(item.origin)}</small></h3>
+            <span class="opportunity-grade">${opportunityLabel(item.level)} · ${t("opportunityScore")} ${item.rank_score}</span>
+            <span>${formatPrice(item.current_price)} <small>${t("opportunityAsOf")} ${escapeHtml(item.data_quality?.kline_as_of || "-")}</small></span></div>
+          <div class="opportunity-columns"><div><h4>${t("opportunityBasis")}</h4>${support.map(s=>`<p>${escapeHtml(s)}</p>`).join("") || `<p>${t("weak_evidence")}</p>`}</div>
+            <div><h4>${t("opportunityRisk")}</h4><p>${t("risk_level")}: ${escapeHtml(enumLabel(item.decision?.risk_level))} · ${t("confidence")}: ${escapeHtml(enumLabel(item.decision?.confidence))}</p>${[...reasons,...opposition].map(s=>`<p>${escapeHtml(s)}</p>`).join("") || `<p>${t("opportunityNoOpposition")}</p>`}</div>
+            <div><h4>${t("opportunityConditions")}</h4><p>MA20 ${formatPrice(c.ma20)} · ATR14 ${formatPrice(c.atr14)}</p>
+              ${item.level === "excluded" ? `<p>${t("opportunityInvalid")}</p>` : `<p>${t("opportunityConfirm")}</p><p>${t("opportunityInvalidation")}: ${formatPrice(c.review_below)}</p>`}
+              <div class="opportunity-score" title="${escapeHtml(scoreVector(p))}">${[[p.up,"#b34848"],[p.range,"#b09236"],[p.down,"#328172"]].map(([v,color])=>`<i style="width:${Math.max(0, Math.min(100, (v || 0)*100))}%;background:${color}"></i>`).join("")}</div><p>${escapeHtml(scoreVector(p))}</p></div></div>
+          ${decisionDetails(item)}
+          ${item.origin === "new" ? `<button class="secondary" ${added ? "disabled" : ""} onclick="addOpportunity('${escapeHtml(item.symbol)}',this)">${t(added ? "opportunityAdded" : "opportunityAdd")}</button>` : ""}
+        </article>`;
+      }).join("") : `<p class="status">${t("opportunityEmpty")}</p>`;
+    }
+    async function addOpportunity(symbol, button) {
+      const item = cachedReview?.result?.items?.find(row => row.symbol === symbol);
+      if (!item) return;
+      const poolId = selectedPoolId();
+      button.disabled = true;
+      try {
+        const current = await api(`/watchlist?pool_id=${poolId}`);
+        if (current.some(row => opportunityIdentity(row.symbol) === opportunityIdentity(symbol))) {
+          cachedWatchlist = current;
+          button.textContent = t("opportunityAdded");
+          return;
+        }
+        await api("/watchlist", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({pool_id:poolId,symbol:item.symbol,name:item.name,priority:3})});
+        await refreshAll();
+        button.textContent = t("opportunityAdded");
+      } catch (error) { button.disabled = false; document.getElementById("actionStatus").textContent = error.message; }
     }
     async function runDecisionEngine() {
       const poolId = selectedPoolId();
@@ -1362,6 +1574,8 @@ def index_html() -> str:
       document.getElementById("quoteStatus").textContent = text;
     }
     function renderDailyReview(report) {
+      if (report.report_type === "opportunity_history") { renderOpportunityHistory(report.rows); return; }
+      if (report.report_type === "opportunity_job") { renderOpportunityJob(report); return; }
       const payload = report.payload || report;
       if (payload.decision_analysis) {
         renderDecisionEngine(payload.decision_analysis, {

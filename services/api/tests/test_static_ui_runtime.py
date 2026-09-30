@@ -22,6 +22,9 @@ def run_ui_javascript(case: str) -> subprocess.CompletedProcess:
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is not installed")
 class StaticUiRuntimeTests(unittest.TestCase):
+    def test_opportunity_poll_cannot_overwrite_newer_analysis_and_labels_are_bilingual(self):
+        self.run_js("opportunities")
+
     def run_js(self, case: str) -> None:
         result = run_ui_javascript(case)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

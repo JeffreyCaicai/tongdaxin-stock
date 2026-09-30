@@ -34,6 +34,7 @@ def generate_stock_pool_decision_engine(
     failed_kline_symbols: list[str] | None = None,
     failed_market_index_symbol: str | None = None,
     max_symbols: int = 30,
+    asset_only: bool = False,
 ) -> dict[str, Any]:
     if period != "daily":
         raise ValueError("This v1 model supports only daily bars.")
@@ -42,7 +43,7 @@ def generate_stock_pool_decision_engine(
     max_symbols = max(1, min(int(max_symbols), 100))
     generated_at = utc_now()
     ordered_symbols = _symbol_order(watchlist=watchlist, holdings=holdings)[:max_symbols]
-    holdings_by_symbol = {
+    holdings_by_symbol = {} if asset_only else {
         normalize_symbol(str(holding["symbol"])): holding for holding in holdings
     }
     watchlist_by_symbol = {
@@ -58,6 +59,13 @@ def generate_stock_pool_decision_engine(
         calendar_index_bars=(index_bars or []) if shared["index"] else [],
         calendar_kline_by_symbol=shared["klines"],
     )
+    if asset_only:
+        # Screened candidates are a selected sample, not market breadth or peers.
+        pool_context = {}
+        factor_context["pool"] = {"sample_size": 0, "sample_size20": 0, "sample_size60": 0}
+        market_regime = infer_market_regime(
+            index_bars=shared["index"], pool_quotes={}, pool_kline_by_symbol={},
+        )
     quality = shared["data_quality"]
     supplied_quality = (market_regime or {}).get("data_quality") or {}
     supplied_degraded = (
@@ -78,8 +86,8 @@ def generate_stock_pool_decision_engine(
         or not (shared["quotes"] or shared["klines"] or shared["index"])
     ):
         market_regime = infer_market_regime(
-            index_bars=shared["index"], pool_quotes=shared["quotes"],
-            pool_kline_by_symbol=shared["klines"],
+            index_bars=shared["index"], pool_quotes={} if asset_only else shared["quotes"],
+            pool_kline_by_symbol={} if asset_only else shared["klines"],
         )
     market_regime = {
         **market_regime,
@@ -115,6 +123,7 @@ def generate_stock_pool_decision_engine(
         "report_type": "stock_pool_decision_engine",
         "symbol": None,
         "model_version": MODEL_VERSION,
+        "asset_only": asset_only,
         "period": period,
         "generated_at": generated_at,
         "calibration": {

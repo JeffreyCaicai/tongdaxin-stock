@@ -100,6 +100,10 @@ from .schemas import (
 )
 from .signal_engine import evaluate_holding_signal
 from .static_ui import index_html
+from .opportunity_api import router as opportunity_router
+from .opportunity_jobs import recover_runs
+from .database import connect
+from contextlib import closing
 
 
 app = FastAPI(
@@ -107,11 +111,14 @@ app = FastAPI(
     version="0.1.0",
     description="Local decision-support API for personal A-share portfolio workflows.",
 )
+app.include_router(opportunity_router)
 
 
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    with closing(connect()) as db:
+        recover_runs(db)
 
 
 @app.get("/health")

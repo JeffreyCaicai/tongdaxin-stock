@@ -7,6 +7,7 @@ function setup() {
   const elements = new Map();
   const storage = new Map([['tdx_pool_id', '1']]);
   const requests = [];
+  const timers = [];
   const document = {
     documentElement: {},
     querySelectorAll: () => [],
@@ -17,6 +18,8 @@ function setup() {
   };
   const context = vm.createContext({
     document, AbortController, console,
+    setTimeout: callback => {timers.push(callback); return timers.length;},
+    clearTimeout: id => {timers[id - 1] = null;},
     localStorage: {
       getItem: key => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value),
@@ -32,6 +35,7 @@ function setup() {
     run: code => vm.runInContext(code, context),
     html: () => document.getElementById('review').innerHTML,
     requests, document,
+    timers,
     latest: () => requests.at(-1),
   };
 }
@@ -246,7 +250,7 @@ async function main() {
     await pending;
   } else if (caseName === 'saved-review') {
     const pending = app.run('dailyReview()');
-    assert.equal(app.latest().path, '/reports/daily-review?pool_id=1&source=tongdaxin');
+    assert.equal(app.latest().path, '/reports/daily-review?pool_id=1&source=tdx-official');
     const saved = {payload: {report_type: 'daily_review', decision_review_status: 'saved_analysis', decision_analysis: {...decisionReport, comparison: {
       previous_generated_at: '2026-09-28T12:00:00Z', items: [{symbol: 'SH600001',
         probability_changes: {up: 0.2}, previous_decision: 'wait_confirm', current_decision: 'hold_observe'}],
@@ -289,7 +293,7 @@ async function main() {
   } else if (caseName === 'legacy-review') {
     app.run("localStorage.removeItem('tdx_pool_id')");
     const pending = app.run('dailyReview()');
-    assert.equal(app.latest().path, '/reports/daily-review?pool_id=&source=tongdaxin');
+    assert.equal(app.latest().path, '/reports/daily-review?pool_id=&source=tdx-official');
     resolve(app.latest(), {payload: {report_type: 'daily_review', holding_count: 1, signal_count: 1,
       recent_signal_details: [{symbol: 'LEGACY_COMPATIBILITY', signal_type: 'trend_break',
         action: 'exit_or_reduce', risk_level: 'high', price: 10}]}});
@@ -335,6 +339,47 @@ async function main() {
       assert.ok(unknown.includes('custom&lt;origin&gt;'));
       assert.ok(!unknown.includes('price_origin_custom'));
     }
+  } else if (caseName === 'opportunities') {
+    const scan = app.run('runOpportunities()');
+    assert.equal(app.latest().path, '/stock-pools/1/opportunities');
+    resolve(app.latest(), {id:'abc',status:'running',source:'tdx-official',progress:{stage:'analyzing',completed:1,total:40}});
+    await scan;
+    assert.ok(app.html().includes('1 / 40'));
+    const poll = app.timers.at(-1)();
+    const old = app.latest();
+    const analysis = app.run('runDecisionEngine()');
+    resolve(app.latest(), {items:[],summary:'NEWER_ANALYSIS'});
+    await analysis;
+    resolve(old,{id:'abc',status:'completed',source:'tdx-official',result:{items:[],selected:[],scope:{}}});
+    await poll;
+    assert.ok(app.html().includes('NEWER_ANALYSIS'));
+    const result = {items:[{...item,symbol:'600036',origin:'new',level:'wait',selection_reasons:['extended_price'],
+      rank_score:60,conditions:{ma20:10,atr14:1,review_below:9},supporting_evidence:[],opposing_evidence:[]}],selected:['600036'],scope:{new:1},discovery:{}};
+    app.run(`renderOpportunityJob(${JSON.stringify({source:'tdx-official',status:'completed',result})})`);
+    const rows = app.document.getElementById('opportunity-rows').innerHTML;
+    assert.ok(rows.includes('等待确认') && rows.includes('价格偏离均线较远'));
+    assert.ok(!rows.includes('<img onerror'));
+    app.run("setLanguage('en')");
+    assert.ok(app.document.getElementById('opportunity-rows').innerHTML.includes('Await confirmation'));
+    app.run("cachedWatchlist = [{symbol:'SH600036'}]; renderOpportunityRows()");
+    assert.ok(app.document.getElementById('opportunity-rows').innerHTML.includes('disabled'));
+    const add = app.run("addOpportunity('600036',{disabled:false,textContent:''})");
+    assert.equal(app.latest().path, '/watchlist?pool_id=1');
+    const count = app.requests.length;
+    resolve(app.latest(),[{symbol:'SH600036'}]);
+    await add;
+    assert.equal(app.requests.length,count,'Existing alias must not create another watchlist entry');
+    app.run("renderOpportunityHistory([{id:'abc',status:'completed',created_at:'2026-10-01'}]); setLanguage('zh')");
+    assert.ok(app.html().includes('推荐记录') && app.html().includes('已完成'));
+    app.run("renderOpportunityJob({id:'abc',source:'tdx-official',status:'running',progress:{}})");
+    const failedPoll = app.timers.at(-1)();
+    app.latest().reject(new Error('offline'));
+    await failedPoll;
+    const retryPoll = app.timers.at(-1)();
+    resolve(app.latest(),{id:'abc',source:'tdx-official',status:'completed',result:{items:[],selected:[],scope:{}}});
+    await retryPoll;
+    assert.ok(app.html().includes('市场机会推荐'));
+    assert.ok(!app.html().includes('取消扫描'));
   } else throw new Error(`Unknown test case: ${caseName}`);
 }
 

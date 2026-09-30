@@ -3,7 +3,7 @@
 The original handoff for this project is kept at:
 
 ```text
-../tongdaxin_stock_handoff.md
+tongdaxin_stock_handoff.md (repository root)
 ```
 
 Use it as the source of truth for product boundaries, data-source research, MVP scope, and roadmap decisions.
@@ -24,4 +24,14 @@ Use it as the source of truth for product boundaries, data-source research, MVP 
 - Local launch: `.venv/bin/python scripts/run_api.py`, then open `http://127.0.0.1:8765/`.
 - Keep `.env`, `.env.save`, credentials, local database files and QA screenshots out of commits.
 
-The historical sibling handoff path above was absent in the current checkout. See [the repair plan](superpowers/plans/2026-09-30-analysis-correctness.md) and repository tests for this iteration's verified scope.
+See [the repair plan](superpowers/plans/2026-09-30-analysis-correctness.md) and repository tests for this iteration's verified scope.
+
+## Market Opportunities (2026-10-01)
+
+- New primary action discovers outside stocks using the real Token screener, then merges all personal watched/held stocks for asset-only ranking. Three bounded queries, two pages of20 each, round-robin deduplication, default40 outside candidates. This is a screened subset, not an exhaustive market scan.
+- Screener permission and quote/K-line access were live verified. Explicit turnover/momentum ordering avoids upstream default code-order bias. Natural-language screening is candidate discovery only; local analysis enforces quality and eligibility.
+- Asset-only mode excludes holding cost/P&L and selected-sample breadth/relative performance. Benchmark is SH000300, daily240 bars, fixed20-session horizon. Missing benchmark, stale/invalid input, inadequate history, inactive/illiquid stocks and non-stock instruments cannot enter the shortlist.
+- SH/SZ aliases deduplicate; Beijing identities remain explicitly qualified. New candidates can be added to watchlist only by user action.
+- `POST /stock-pools/{id}/opportunities` starts a background job; GET same path lists history; `GET /opportunities/{id}` reads status/result; DELETE requests cancellation. Runs persist in `opportunity_runs`. Single-process local service supports one scan at a time with three data workers. Restart marks interrupted jobs; there is no distributed job queue.
+- Frontend has progress, cancel, origin filters, all assessments, reasons, conditions and details, plus saved history. Default source for new browser storage is now official Token; existing source choice is preserved.
+- This is an uncalibrated technical research shortlist. No fundamentals, industry/style attribution, event research, automatic execution or validated win-rate claims. See [Ganlee retrospective check](research/2026-10-01-ganlee-case.md).

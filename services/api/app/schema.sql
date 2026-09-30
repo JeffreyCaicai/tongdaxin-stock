@@ -136,3 +136,13 @@ CREATE TABLE IF NOT EXISTS backtests (
 
 CREATE INDEX IF NOT EXISTS idx_backtests_symbol_created
 ON backtests(symbol, created_at);
+CREATE TABLE IF NOT EXISTS opportunity_runs (
+    id TEXT PRIMARY KEY,
+    pool_id INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    progress_json TEXT NOT NULL,
+    result_json TEXT
+);
