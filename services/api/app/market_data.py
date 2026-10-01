@@ -392,6 +392,14 @@ class TdxOfficialMarketDataProvider:
         period: str = "daily",
         limit: int = 120,
     ) -> list[dict[str, Any]]:
+        bars = self.fetch_kline_page(symbol, period=period, limit=max(1, min(limit, 1000)), start=0)
+        if not bars:
+            raise MarketDataError("tdx-official kline payload was empty")
+        return bars
+
+    def fetch_kline_page(self, symbol: str, *, period: str, limit: int, start: int) -> list[dict[str, Any]]:
+        if type(start) is not int or start < 0 or type(limit) is not int or not 1 <= limit <= 1000:
+            raise MarketDataError("invalid_kline_page")
         try:
             period = normalize_period(period)
         except ValueError:
@@ -405,7 +413,7 @@ class TdxOfficialMarketDataProvider:
                 "Code": identity.code,
                 "Setcode": int(_tdx_official_setcode(normalized_symbol)),
                 "Period": int(_tdx_official_period(period)),
-                "Startxh": 0,
+                "Startxh": start,
                 "WantNum": max(1, min(limit, 1000)),
                 "TQFlag": 11,
                 "MPData": 0,
@@ -417,8 +425,8 @@ class TdxOfficialMarketDataProvider:
         )
         _raise_tdx_official_error(payload, normalized_symbol, "kline")
 
-        raw_bars = payload.get("ListItem") or payload.get("listItem") or payload.get("items")
-        if not isinstance(raw_bars, list) or not raw_bars:
+        raw_bars = next((payload[key] for key in ("ListItem", "listItem", "items") if key in payload), None)
+        if not isinstance(raw_bars, list) or len(raw_bars) > limit:
             raise MarketDataError(
                 f"tdx-official kline response did not include ListItem for {normalized_symbol}"
             )
@@ -490,8 +498,6 @@ class TdxOfficialMarketDataProvider:
             except ValueError:
                 raise MarketDataError("tdx-official invalid K-line prices") from None
 
-        if not bars:
-            raise MarketDataError(f"tdx-official kline payload was empty for {normalized_symbol}")
         unique = {}
         for bar in bars:
             key = bar["trade_date"]
