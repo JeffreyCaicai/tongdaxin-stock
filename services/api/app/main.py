@@ -18,6 +18,7 @@ from .database import get_db, init_db
 from .decision_engine import generate_stock_pool_decision_engine
 from .indicators import calculate_indicator_snapshot
 from .market_data import MarketDataError, get_market_data_provider, search_stock_candidates
+from .market_time import normalize_period
 from .mcp_tools import McpToolError, call_eltdx_mcp_tool, list_eltdx_mcp_tools
 from .pool_analysis import (
     generate_stock_pool_market_analysis,
@@ -331,17 +332,20 @@ def _fetch_kline_and_cache(
 ) -> dict:
     normalized_symbol = normalize_symbol(symbol)
     try:
+        period = normalize_period(period)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="unsupported_period") from None
+    try:
         provider = get_market_data_provider(source)
         bars = provider.fetch_kline(normalized_symbol, period=period, limit=limit)
         if not bars:
             raise MarketDataError(f"No {period} K-lines returned for {normalized_symbol}")
-        cached_bars = upsert_market_klines(
-            db,
-            symbol=normalized_symbol,
-            source=provider.name,
-            period=period,
-            bars=bars,
-        )
+        try:
+            cached_bars = upsert_market_klines(
+                db, symbol=normalized_symbol, source=provider.name, period=period, bars=bars,
+            )
+        except (ValueError, TypeError, KeyError):
+            raise MarketDataError("invalid_kline_batch") from None
         create_market_fetch_log(
             db,
             symbol=normalized_symbol,
@@ -819,6 +823,10 @@ def api_list_cached_market_klines(
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict:
     normalized_symbol = normalize_symbol(symbol)
+    try:
+        period = normalize_period(period)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="unsupported_period") from None
     bars = list_market_klines(
         db, symbol=normalized_symbol, source=source, period=period, limit=limit
     )

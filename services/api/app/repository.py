@@ -5,6 +5,8 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
+from .market_time import bar_time, normalize_period, price_values, RESEARCH_PERIODS
+
 
 HOLDING_FIELDS = {
     "symbol",
@@ -492,9 +494,21 @@ def upsert_market_klines(
     fetched_at: str | None = None,
 ) -> list[dict[str, Any]]:
     fetched_at = fetched_at or utc_now()
+    period = normalize_period(period)
     normalized_symbol = normalize_symbol(symbol)
     batch: dict[str, dict[str, Any]] = {}
+    prepared = {}
+    # Validate the entire response before executing writes; revisions across batches are allowed.
     for bar in bars:
+        metadata = bar_time(bar["trade_date"], period=period) if period in RESEARCH_PERIODS else {}
+        prices = price_values(bar)
+        key = metadata.get("trade_date", bar["trade_date"])
+        if key in prepared and price_values(prepared[key]) != prices:
+            raise ValueError("conflicting_duplicate")
+        payload = {**bar.get("payload", bar), **metadata}
+        prepared[key] = {**bar, **prices, "trade_date": key,
+                         "payload_json": json.dumps(payload, ensure_ascii=False, allow_nan=False)}
+    for bar in prepared.values():
         connection.execute(
             """
             INSERT INTO market_klines (
@@ -523,7 +537,7 @@ def upsert_market_klines(
                 bar["close"],
                 bar.get("volume"),
                 bar.get("amount"),
-                json.dumps(bar.get("payload", bar), ensure_ascii=False),
+                bar["payload_json"],
                 fetched_at,
             ),
         )
@@ -531,7 +545,7 @@ def upsert_market_klines(
             "SELECT * FROM market_klines WHERE symbol = ? AND source = ? AND period = ? AND trade_date = ?",
             (normalized_symbol, source, period, bar["trade_date"]),
         ).fetchone()
-        batch[bar["trade_date"]] = dict(row)
+        batch[bar["trade_date"]] = _kline_output(row)
     connection.commit()
     return sorted(batch.values(), key=lambda row: row["trade_date"], reverse=True)
 
@@ -545,8 +559,11 @@ def list_market_klines(
     limit: int = 120,
 ) -> list[dict[str, Any]]:
     limit = max(1, min(limit, 1000))
+    period = normalize_period(period)
     clauses = ["symbol = ?", "period = ?"]
     params: list[Any] = [normalize_symbol(symbol), period]
+    if period in {"5min", "60min"}:
+        clauses.append("length(trade_date) = 25 AND substr(trade_date,11,1) = 'T' AND substr(trade_date,20) = '+08:00'")
     if source:
         clauses.append("source = ?")
         params.append(source)
@@ -560,7 +577,15 @@ def list_market_klines(
         """,
         tuple(params + [limit]),
     ).fetchall()
-    return [dict(row) for row in rows]
+    return [_kline_output(row) for row in rows]
+
+
+def _kline_output(row: sqlite3.Row) -> dict[str, Any]:
+    result = dict(row)
+    payload = json.loads(result.get("payload_json") or "{}")
+    if isinstance(payload, dict):
+        result.update({key: payload.get(key) for key in ("session_date", "bar_end_at", "time_semantics")})
+    return result
 
 
 def create_market_fetch_log(

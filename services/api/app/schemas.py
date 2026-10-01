@@ -180,6 +180,9 @@ class MarketKlineBarOut(BaseModel):
     source: str
     period: str
     trade_date: str
+    session_date: str | None = None
+    bar_end_at: str | None = None
+    time_semantics: str | None = None
     open: float
     high: float
     low: float
