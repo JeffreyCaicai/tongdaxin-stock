@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .config import get_tdx_api_endpoint, get_tdx_api_key
+from .market_time import decode_tdx_bar_time, normalize_period, price_values, RESEARCH_PERIODS
 from .repository import normalize_symbol, utc_now
 
 
@@ -391,6 +392,10 @@ class TdxOfficialMarketDataProvider:
         period: str = "daily",
         limit: int = 120,
     ) -> list[dict[str, Any]]:
+        try:
+            period = normalize_period(period)
+        except ValueError:
+            raise MarketDataError("unsupported_period") from None
         identity = _market_identity(symbol)
         normalized_symbol = identity.symbol
         payload = _tdx_official_post(
@@ -429,6 +434,12 @@ class TdxOfficialMarketDataProvider:
                 ("TradeDate", "trade_date", "Date", "date", "Time", "time", "日期", "时间"),
                 (0, 1),
             )
+            metadata = {}
+            if period in RESEARCH_PERIODS:
+                try:
+                    metadata = decode_tdx_bar_time(item, period=period)
+                except ValueError:
+                    raise MarketDataError("tdx-official invalid K-line timestamp") from None
             bars.append(
                 {
                     "symbol": normalized_symbol,
@@ -436,7 +447,7 @@ class TdxOfficialMarketDataProvider:
                     "market": identity.market,
                     "instrument_type": identity.instrument_type,
                     "period": period,
-                    "trade_date": _tdx_official_date_text(trade_date),
+                    "trade_date": metadata.get("trade_date") or _tdx_official_date_text(trade_date),
                     "open": _required_tdx_official_float(
                         _tdx_official_kline_value(
                             item, values, ("Open", "open", "开盘"), (2, 1)
@@ -471,13 +482,23 @@ class TdxOfficialMarketDataProvider:
                             item, values, ("Amount", "amount", "成交额"), (7, 6)
                         )
                     ),
-                    "payload": _jsonable(item),
+                    "payload": {**_jsonable(item), **metadata},
                 }
             )
+            try:
+                price_values(bars[-1])
+            except ValueError:
+                raise MarketDataError("tdx-official invalid K-line prices") from None
 
         if not bars:
             raise MarketDataError(f"tdx-official kline payload was empty for {normalized_symbol}")
-        return bars
+        unique = {}
+        for bar in bars:
+            key = bar["trade_date"]
+            if key in unique and price_values(unique[key]) != price_values(bar):
+                raise MarketDataError("tdx-official conflicting K-line timestamps")
+            unique[key] = bar
+        return [unique[key] for key in sorted(unique)]
 
 
 class EastmoneyMarketDataProvider:
@@ -918,6 +939,8 @@ def _tdx_official_date_text(value: Any) -> str:
 
 
 def _required_tdx_official_float(value: Any, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise MarketDataError("tdx-official invalid K-line prices")
     return _required_float(value, field_name)
 
 
