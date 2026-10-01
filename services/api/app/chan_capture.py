@@ -57,7 +57,8 @@ def capture_dataset(*, symbols: list[str], periods: list[str], as_of: str, page_
                         "first": None, "last": None, "status": "failed"}
                 dataset["collection"]["pages"].append(page)
                 try:
-                    rows = provider.fetch_kline_page(symbol, period=period, limit=page_size, start=page["start"])
+                    rows = provider.fetch_kline_page(symbol, period=period, limit=page_size,
+                                                    start=page["start"], preserve_price_issues=True)
                     if not isinstance(rows, list) or len(rows) > page_size:
                         raise ValueError("invalid_page_size")
                     page["count"] = len(rows)

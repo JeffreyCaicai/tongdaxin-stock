@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .config import get_tdx_api_endpoint, get_tdx_api_key
-from .market_time import decode_tdx_bar_time, normalize_period, price_values, RESEARCH_PERIODS
+from .market_time import decode_tdx_bar_time, finite_number, normalize_period, price_values, RESEARCH_PERIODS
 from .repository import normalize_symbol, utc_now
 
 
@@ -397,13 +397,16 @@ class TdxOfficialMarketDataProvider:
             raise MarketDataError("tdx-official kline payload was empty")
         return bars
 
-    def fetch_kline_page(self, symbol: str, *, period: str, limit: int, start: int) -> list[dict[str, Any]]:
+    def fetch_kline_page(self, symbol: str, *, period: str, limit: int, start: int,
+                         preserve_price_issues: bool = False) -> list[dict[str, Any]]:
         if type(start) is not int or start < 0 or type(limit) is not int or not 1 <= limit <= 1000:
             raise MarketDataError("invalid_kline_page")
         try:
             period = normalize_period(period)
         except ValueError:
             raise MarketDataError("unsupported_period") from None
+        if preserve_price_issues and period not in RESEARCH_PERIODS:
+            raise MarketDataError("unsupported_research_period")
         identity = _market_identity(symbol)
         normalized_symbol = identity.symbol
         payload = _tdx_official_post(
@@ -431,6 +434,10 @@ class TdxOfficialMarketDataProvider:
                 f"tdx-official kline response did not include ListItem for {normalized_symbol}"
             )
 
+        def read_price(value, field):
+            # Research applies its historical cutoff before validating dated price issues.
+            return finite_number(value) if preserve_price_issues else _required_tdx_official_float(value, field)
+
         bars: list[dict[str, Any]] = []
         for row in raw_bars[-limit:]:
             item = _as_dict(row)
@@ -456,25 +463,25 @@ class TdxOfficialMarketDataProvider:
                     "instrument_type": identity.instrument_type,
                     "period": period,
                     "trade_date": metadata.get("trade_date") or _tdx_official_date_text(trade_date),
-                    "open": _required_tdx_official_float(
+                    "open": read_price(
                         _tdx_official_kline_value(
                             item, values, ("Open", "open", "开盘"), (2, 1)
                         ),
                         "open",
                     ),
-                    "high": _required_tdx_official_float(
+                    "high": read_price(
                         _tdx_official_kline_value(
                             item, values, ("High", "high", "最高"), (3, 2)
                         ),
                         "high",
                     ),
-                    "low": _required_tdx_official_float(
+                    "low": read_price(
                         _tdx_official_kline_value(
                             item, values, ("Low", "low", "最低"), (4, 3)
                         ),
                         "low",
                     ),
-                    "close": _required_tdx_official_float(
+                    "close": read_price(
                         _tdx_official_kline_value(
                             item, values, ("Close", "close", "收盘"), (5, 4)
                         ),
@@ -493,10 +500,14 @@ class TdxOfficialMarketDataProvider:
                     "payload": {**_jsonable(item), **metadata},
                 }
             )
-            try:
-                price_values(bars[-1])
-            except ValueError:
-                raise MarketDataError("tdx-official invalid K-line prices") from None
+            if not preserve_price_issues:
+                try:
+                    price_values(bars[-1])
+                except ValueError:
+                    raise MarketDataError("tdx-official invalid K-line prices") from None
+
+        if preserve_price_issues:
+            return bars
 
         unique = {}
         for bar in bars:

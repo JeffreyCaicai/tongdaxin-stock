@@ -5,11 +5,53 @@ import unittest
 from unittest import mock
 
 from services.api.app.chan_capture import capture_dataset
+from services.api.app.chan_replay import replay_symbol
 from services.api.app.market_data import MarketDataError, get_market_data_provider
-from services.api.tests.chan_validation_cases import daily_bar
+from services.api.tests.chan_validation_cases import candidate_bars, daily_bar
 
 
 class ChanCaptureTests(unittest.TestCase):
+    def capture_official(self, bars):
+        rows = [{"Item": [bar["trade_date"].replace("-", ""), "0",
+                           *[bar.get(key) for key in ("open", "high", "low", "close", "volume", "amount")]]}
+                for bar in bars]
+        with mock.patch("services.api.app.market_data._tdx_official_post", return_value={"ListItem": rows}), \
+             mock.patch("services.api.app.chan_capture.time.sleep"):
+            return capture_dataset(symbols=["600519"], periods=["daily"],
+                                   as_of="2026-02-15T15:00:00+08:00")
+
+    def test_official_future_bad_prices_do_not_change_historical_replay(self):
+        bars = candidate_bars()
+        first = self.capture_official(bars)["series"]["600519"]["daily"]
+        baseline = replay_symbol(symbol="600519", bars=first["bars"], quality_issues=first["issues"],
+                                 as_of="2026-02-15T15:00:00+08:00")
+        self.assertEqual(len(baseline["observations"]), 1)
+        for future in [daily_bar("2026-02-16", high=9), *[
+                {**daily_bar("2026-02-16"), "close": value} for value in (None, True, float("nan"))]]:
+            with self.subTest(future=future):
+                data = self.capture_official(bars + [future, daily_bar("2026-02-16", 100)])
+                series = data["series"]["600519"]["daily"]
+                self.assertEqual(series, first)
+                self.assertEqual(replay_symbol(symbol="600519", bars=series["bars"], quality_issues=series["issues"],
+                                               as_of=data["as_of"]), baseline)
+
+    def test_official_past_bad_price_is_dated_without_discarding_valid_rows(self):
+        bars = candidate_bars()
+        bars[-1] = daily_bar(bars[-1]["trade_date"], high=9)
+        data = self.capture_official(bars)
+        series = data["series"]["600519"]["daily"]
+        self.assertEqual(len(series["bars"]), 45)
+        self.assertEqual([(i["code"], i["scope"], i["bar_key"]) for i in series["issues"]
+                          if i["code"] != "truncated"], [("invalid_ohlc", "bar", "2026-02-15")])
+        self.assertEqual(data["collection"]["status"], "partial")
+        self.assertEqual(len(replay_symbol(symbol="600519", bars=series["bars"], quality_issues=series["issues"],
+                                          as_of=data["as_of"])["observations"]), 1)
+        provider = get_market_data_provider("tdx-official")
+        with mock.patch("services.api.app.market_data._tdx_official_post",
+                        return_value={"ListItem": [{"Item": ["20260215", "0", 10, 9, 8, 10, 100]}]}):
+            with self.assertRaises(MarketDataError):
+                provider.fetch_kline("600519", period="daily", limit=100)
+
     def capture(self, fetch, **kwargs):
         provider = mock.Mock()
         provider.fetch_kline_page.side_effect = fetch
@@ -20,7 +62,8 @@ class ChanCaptureTests(unittest.TestCase):
 
     def test_capture_records_bounded_pagination_and_strips_raw(self):
         offsets = []
-        def fetch(symbol, *, period, limit, start):
+        def fetch(symbol, *, period, limit, start, preserve_price_issues):
+            self.assertTrue(preserve_price_issues)
             offsets.append((symbol, start))
             return {0: [daily_bar("2026-09-29", token="secret"), daily_bar("2026-09-30", raw="secret")],
                     2: [daily_bar("2026-09-28"), daily_bar("2026-09-29")], 4: []}[start]

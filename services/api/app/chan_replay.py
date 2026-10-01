@@ -79,11 +79,17 @@ def replay_symbol(*, symbol: str, bars: list[dict], as_of: str, quality_issues: 
         analysis = analyze(symbol=symbol, bars=deepcopy(prefix), as_of=at)
         quality = deepcopy(analysis["data_quality"])
         quality["external_issues"] = [i["code"] for i in external]
-        usable = quality["status"] == "complete" and not external
+        try:
+            price = price_values(prefix[-1])
+        except (ValueError, TypeError):
+            price = None
+            quality["external_issues"].append("invalid_ohlc")
+        boundary_usable = price is not None and not any(
+            i["scope"] == "series" or i["bar_key"][:10] == day for i in external)
+        usable = quality["status"] == "complete" and not external and boundary_usable
         candidate = None
         if usable:
             try:
-                price_values(prefix[-1])
                 candidate = _candidate(analysis, at)
             except (ValueError, TypeError, KeyError):
                 usable = False
@@ -91,30 +97,30 @@ def replay_symbol(*, symbol: str, bars: list[dict], as_of: str, quality_issues: 
         result["frames"].append({"symbol": symbol, "at": at, "bar_count": count, "data_hash": data_hash,
                                  "signal": deepcopy(analysis["signal"]), "data_quality": quality,
                                  "eligible": usable, "latest_center": deepcopy(analysis.get("latest_center")),
+                                 "boundary_tracking_eligible": boundary_usable,
                                  "structure_key": analysis.get("structure_key")})
-        if not usable:
-            for observation in result["observations"]:
-                if states[observation["observation_id"]]["last_valid_status"] != "invalidated":
-                    event(observation, "data_unavailable", at, data_hash)
-            continue
         key = digest({"anchor": candidate["anchor"], "direction": candidate["direction"]}) if candidate else None
         for observation in result["observations"]:
             state = states[observation["observation_id"]]
             boundary = observation["frozen_boundary"]
             upward = observation["direction"] == "up"
-            if state["key"] != key:
+            if usable and state["key"] != key:
                 armed.add(state["key"])
             if state["last_valid_status"] == "invalidated":
                 continue
-            price = prefix[-1]
-            invalidated = price["close"] <= boundary if upward else price["close"] >= boundary
-            if invalidated:
-                event(observation, "invalidated", at, data_hash, details={"close": price["close"], "boundary": boundary})
+            # A stale structure cannot make a trustworthy close forget the original boundary.
+            if boundary_usable:
+                invalidated = price["close"] <= boundary if upward else price["close"] >= boundary
+                if invalidated:
+                    event(observation, "invalidated", at, data_hash, details={"close": price["close"], "boundary": boundary})
+                    continue
+                touched = price["low"] <= boundary if upward else price["high"] >= boundary
+                if touched and not state["touched"]:
+                    event(observation, "boundary_touch", at, data_hash, details={"boundary": boundary}, transition=False)
+                state["touched"] = touched
+            if not usable:
+                event(observation, "data_unavailable", at, data_hash)
                 continue
-            touched = price["low"] <= boundary if upward else price["high"] >= boundary
-            if touched and not state["touched"]:
-                event(observation, "boundary_touch", at, data_hash, details={"boundary": boundary}, transition=False)
-            state["touched"] = touched
             is_current = latest.get(state["key"]) == observation["observation_id"]
             if state["key"] != key or not is_current or state["last_valid_status"] == "withdrawn":
                 event(observation, "withdrawn", at, data_hash)
@@ -128,7 +134,7 @@ def replay_symbol(*, symbol: str, bars: list[dict], as_of: str, quality_issues: 
             if new_episode:
                 # A reappearance must also satisfy the first frozen boundary at its observation close.
                 boundary, upward = candidate["frozen_boundary"], candidate["direction"] == "up"
-                if (prefix[-1]["close"] <= boundary if upward else prefix[-1]["close"] >= boundary):
+                if (price["close"] <= boundary if upward else price["close"] >= boundary):
                     continue
                 identity = {"model": MODEL_VERSION, "symbol": symbol, "anchor": candidate["anchor"],
                             "direction": candidate["direction"], "first_seen_at": at}

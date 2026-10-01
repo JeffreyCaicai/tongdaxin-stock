@@ -1,5 +1,6 @@
 import copy
 import unittest
+from datetime import date, timedelta
 
 from services.api.app.chan_replay import replay_symbol
 from services.api.app.chan_analysis import analyze_chan_structure
@@ -68,6 +69,57 @@ class ChanReplayTests(unittest.TestCase):
         bars[-1] = daily_bar(bars[-1]["trade_date"], 12)
         result = self.run_replay(bars, controlled_analyzer({36: "observation", 37: "observation", 38: "observation"}))
         self.assertEqual([e["type"] for e in result["events"]], ["candidate", "withdrawn", "invalidated"])
+
+    def test_stale_structure_still_invalidates_at_trustworthy_current_close(self):
+        bars = candidate_bars() + [daily_bar((date(2026, 2, 16) + timedelta(days=i)).isoformat(),
+                                            13.8, high=13.9, low=13.7) for i in range(40)]
+        before = self.run_replay(bars[:-1])
+        bars[-1] = daily_bar(bars[-1]["trade_date"], 11, high=11.1, low=10.9)
+        result = self.run_replay(bars)
+        self.assertIn("stale_structure", result["frames"][-1]["data_quality"]["issues"])
+        self.assertFalse(result["frames"][-1]["eligible"])
+        self.assertTrue(result["frames"][-1]["boundary_tracking_eligible"])
+        self.assertEqual(result["observations"], before["observations"])
+        invalid = [e for e in result["events"] if e["type"] == "invalidated"]
+        self.assertEqual(len(invalid), 1)
+        self.assertEqual(invalid[0]["at"], "2026-03-27T15:00:00+08:00")
+        self.assertEqual(invalid[0]["details"], {"close": 11, "boundary": 12.1})
+        self.assertEqual(result["events"][:len(before["events"])], before["events"])
+
+    def test_untrustworthy_current_price_never_triggers_invalidation(self):
+        for source in ("price", "bar_issue", "series_issue"):
+            with self.subTest(source=source):
+                bars = controlled_bars(36)
+                bars[-1] = daily_bar(bars[-1]["trade_date"], 11)
+                issues = []
+                if source == "price":
+                    bars[-1]["high"] = 10
+                else:
+                    issues = [{"code": "invalid_ohlc", "symbol": "600519", "period": "daily",
+                               "scope": "bar" if source == "bar_issue" else "series",
+                               "bar_key": bars[-1]["trade_date"] if source == "bar_issue" else None}]
+                result = self.run_replay(bars, controlled_analyzer(), issues)
+                if source == "series_issue":
+                    self.assertEqual(result["observations"], [])
+                else:
+                    self.assertEqual(len(result["observations"]), 1)
+                    self.assertEqual(result["events"][-1]["type"], "data_unavailable")
+                self.assertNotIn("invalidated", [e["type"] for e in result["events"]])
+
+    def test_stale_sell_candidate_keeps_frozen_boundary_tracking(self):
+        base = controlled_analyzer(direction="down")
+        def stale(*, symbol, bars, as_of):
+            result = base(symbol=symbol, bars=bars, as_of=as_of)
+            if len(bars) > 35:
+                result["data_quality"] = {"status": "partial", "issues": ["stale_structure"]}
+            return result
+        bars = [daily_bar(b["trade_date"], 9, high=9.5) for b in controlled_bars(37)]
+        bars[35]["high"] = 10.1
+        bars[-1] = daily_bar(bars[-1]["trade_date"], 10)
+        result = self.run_replay(bars, stale)
+        self.assertEqual(len(result["observations"]), 1)
+        self.assertEqual([e["type"] for e in result["events"]],
+                         ["candidate", "boundary_touch", "data_unavailable", "invalidated"])
 
     def test_future_quality_issue_cannot_poison_past(self):
         issue = {"code": "missing_session", "symbol": "600519", "period": "daily", "scope": "bar", "bar_key": "2026-02-06"}
