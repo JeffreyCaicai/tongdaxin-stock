@@ -61,6 +61,7 @@ class ChanAnalysisTests(unittest.TestCase):
             symbol="688630",
             name="芯碁微装",
             bars=zigzag_bars(),
+            as_of="2026-02-10T16:00:00+08:00",
         )
 
         self.assertEqual(analysis["symbol"], "688630")
@@ -88,6 +89,7 @@ class ChanAnalysisTests(unittest.TestCase):
             symbol="688323",
             name="瑞华泰",
             bars=bars,
+            as_of="2026-02-15T16:00:00+08:00",
         )
 
         self.assertEqual(analysis["structure"], "远离中枢上方")

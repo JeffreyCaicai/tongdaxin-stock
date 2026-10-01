@@ -5,8 +5,11 @@ import math
 from .decision_engine import generate_stock_pool_decision_engine
 from .repository import normalize_symbol, utc_now
 from .opportunity_discovery import canonical_stock
+from .opportunity_horizons import MODEL as HORIZON_MODEL, assess_horizons
+from .opportunity_prices import completed_daily_bars
+from .market_regime import infer_market_regime
 
-MODEL = "market_opportunities_v1"
+MODEL = "market_opportunities_v2"
 
 
 def merge_candidates(discovered: list[dict], watchlist: list[dict], holdings: list[dict], limit: int) -> list[dict]:
@@ -102,6 +105,9 @@ def build_opportunity_report(*, candidates: list[dict], quotes: dict, klines: di
                              index_bars: list[dict], source: str, discovery: dict,
                              failures: list[dict], pool: dict) -> dict:
     items, regime = [], {}
+    generated_at = utc_now()
+    closed_index, index_issues = completed_daily_bars(index_bars, generated_at)
+    period_regime = infer_market_regime(index_bars=closed_index if not index_issues else [])
     for start in range(0, len(candidates), 100):
         batch = candidates[start:start + 100]
         # The asset-only path excludes selected-sample breadth and holding P/L.
@@ -115,11 +121,16 @@ def build_opportunity_report(*, candidates: list[dict], quotes: dict, klines: di
         for item in report["items"]:
             result = classify(item, quotes.get(item["symbol"], {}), klines.get(item["symbol"], []))
             result.update(origin=metadata[item["symbol"]]["origin"], themes=metadata[item["symbol"]].get("themes", []))
+            result["period_assessments"] = assess_horizons(
+                bars=klines.get(item["symbol"], []), index_bars=index_bars, as_of=generated_at,
+                regime=period_regime["regime"], blocked=result["level"] == "excluded",
+            )
             items.append(result)
     items.sort(key=lambda x: ({"priority": 0, "wait": 1, "not_selected": 2, "excluded": 3}[x["level"]], -x["rank_score"], x["symbol"]))
     selected = [row["symbol"] for row in items if row["level"] in {"priority", "wait"}][:10]
     return {"report_type": "market_opportunities", "model_version": MODEL,
-            "generated_at": utc_now(), "source": source, "pool": pool,
+            "generated_at": generated_at, "source": source, "pool": pool,
+            "period_assessment_model": HORIZON_MODEL, "period_market_regime": period_regime,
             "horizon_sessions": 20, "period": "daily", "benchmark": "SH000300",
             "calibration": "uncalibrated", "market_regime": regime,
             "discovery": discovery, "failures": failures, "items": items, "selected": selected,

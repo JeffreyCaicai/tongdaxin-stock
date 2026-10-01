@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
+from .opportunity_prices import completed_daily_bars, local_timestamp
 from .repository import normalize_symbol, utc_now
+
+MODEL_VERSION = "daily_pen_overlap_v2"
 
 
 def analyze_chan_structure(
@@ -11,35 +15,85 @@ def analyze_chan_structure(
     bars: list[dict[str, Any]],
     name: str | None = None,
     period: str = "daily",
+    as_of: str | None = None,
 ) -> dict[str, Any]:
+    if period != "daily":
+        raise ValueError("Chan structure currently supports completed daily bars only")
+    generated_at = as_of or utc_now()
     normalized_symbol = normalize_symbol(symbol)
-    ordered = sorted(bars, key=lambda bar: str(bar["trade_date"]))
+    ordered, issues = completed_daily_bars(bars, generated_at)
+    latest_date = ordered[-1]["trade_date"] if ordered else None
+    age_days = ((local_timestamp(generated_at).date() - date.fromisoformat(latest_date)).days
+                if latest_date else None)
+    if age_days is not None and age_days > 10:
+        issues.append("stale_kline")
+    if len(ordered) < 35:
+        issues.append("insufficient_bars")
     merged = _merge_contained_bars(ordered)
     fractals = _detect_fractals(merged)
-    strokes = _build_strokes(fractals)
-    centers = _detect_centers(strokes)
+    strokes = _build_strokes(fractals, bars=ordered)
+    stable_strokes = [stroke for stroke in strokes if stroke["confirmed"]]
+    centers = _detect_centers(stable_strokes)
     current_price = float(ordered[-1]["close"]) if ordered else None
     signal = _candidate_signal(
         current_price=current_price,
-        strokes=strokes,
+        strokes=stable_strokes,
         centers=centers,
     )
+    if not ordered:
+        signal = _signal("complete_market_data", "补齐K线", "数据复核",
+                         "没有可用的已收盘日线，不能判断结构。", confidence="low")
+    elif issues:
+        signal = _signal("data_review", "数据待复核", "数据复核",
+                         "K线存在缺损、重复、陈旧或样本不足，历史结构仅作参考。", confidence="low")
+    last_stroke_age = (sum(bar["trade_date"] > stable_strokes[-1]["end_date"] for bar in ordered)
+                       if stable_strokes else None)
+    if not issues and last_stroke_age is not None and last_stroke_age > 20:
+        issues.append("stale_structure")
+        signal = _signal("wait_for_structure", "等待新结构", "观察",
+                         "最近稳定笔距今超过20根日线，旧候选不再作为当前触发依据。", confidence="low")
+    signal["status"] = "candidate" if signal["type"].startswith("suspected_third_") else "observation"
+    center = centers[-1] if centers else None
+    structure = _structure_label(strokes=stable_strokes, centers=centers, current_price=current_price)
 
     return {
         "symbol": normalized_symbol,
         "name": name,
         "period": period,
+        "model_version": MODEL_VERSION,
+        "as_of": latest_date,
+        "price_origin": "kline_close",
+        "data_quality": {
+            "status": "missing" if not ordered else "partial" if issues else "complete",
+            "issues": sorted(set(issues)), "input_bar_count": len(bars),
+            "excluded_bar_count": len(bars) - len(ordered), "age_days": age_days,
+        },
         "bar_count": len(ordered),
         "merged_bar_count": len(merged),
         "fractal_count": len(fractals),
         "stroke_count": len(strokes),
+        "confirmed_stroke_count": len(stable_strokes),
+        "last_stable_stroke_age_bars": last_stroke_age,
         "center_count": len(centers),
         "current_price": current_price,
-        "structure": _structure_label(strokes=strokes, centers=centers, current_price=current_price),
+        "structure": structure,
+        "structure_key": {
+            "结构未成型": "unformed", "趋势段观察": "no_center", "中枢已形成": "center_formed",
+            "远离中枢上方": "extended_above", "中枢上方": "above",
+            "远离中枢下方": "extended_below", "中枢下方": "below", "中枢震荡": "inside",
+        }[structure],
         "signal": signal,
-        "latest_center": centers[-1] if centers else None,
+        "latest_center": center,
+        "center_age_bars": sum(bar["trade_date"] > center["end_date"] for bar in ordered) if center else None,
+        "center_distance_pct": (
+            round((current_price / (center["upper"] if current_price > center["upper"] else center["lower"]) - 1) * 100, 2)
+            if center and current_price and not center["lower"] <= current_price <= center["upper"]
+            else 0.0 if center else None
+        ),
         "latest_strokes": strokes[-5:],
         "latest_fractals": fractals[-6:],
+        "chart": {"bars": [{key: bar[key] for key in ("trade_date", "open", "high", "low", "close")}
+                           for bar in ordered[-160:]], "strokes": strokes, "centers": centers},
     }
 
 
@@ -51,6 +105,7 @@ def generate_stock_pool_chan_analysis(
     source: str,
     period: str = "daily",
     failed_symbols: list[str] | None = None,
+    fetch_issues: dict[str, str] | None = None,
     max_symbols: int = 30,
 ) -> dict[str, Any]:
     max_symbols = max(1, min(int(max_symbols), 100))
@@ -59,46 +114,17 @@ def generate_stock_pool_chan_analysis(
         normalize_symbol(str(item["symbol"])): item for item in watchlist
     }
     items: list[dict[str, Any]] = []
+    generated_at = utc_now()
 
     for symbol in ordered_symbols:
         bars = kline_by_symbol.get(symbol) or []
         item = watchlist_by_symbol.get(symbol)
-        if bars:
-            items.append(
-                analyze_chan_structure(
-                    symbol=symbol,
-                    name=item.get("name") if item else None,
-                    bars=bars,
-                    period=period,
-                )
-            )
-        else:
-            items.append(
-                {
-                    "symbol": symbol,
-                    "name": item.get("name") if item else None,
-                    "period": period,
-                    "bar_count": 0,
-                    "merged_bar_count": 0,
-                    "fractal_count": 0,
-                    "stroke_count": 0,
-                    "center_count": 0,
-                    "current_price": None,
-                    "structure": "insufficient_data",
-                    "signal": {
-                        "type": "complete_market_data",
-                        "label": "补齐K线",
-                        "action": "先补齐K线数据",
-                        "confidence": "low",
-                        "reason": "没有可用K线，无法识别分型、笔和中枢。",
-                        "trigger": None,
-                        "invalidation": None,
-                    },
-                    "latest_center": None,
-                    "latest_strokes": [],
-                    "latest_fractals": [],
-                }
-            )
+        items.append(analyze_chan_structure(
+            symbol=symbol, name=item.get("name") if item else None,
+            bars=bars, period=period, as_of=generated_at,
+        ))
+        if symbol in (fetch_issues or {}):
+            items[-1]["data_quality"]["issues"].append(fetch_issues[symbol])
 
     signal_counts: dict[str, int] = {}
     for item in items:
@@ -110,7 +136,10 @@ def generate_stock_pool_chan_analysis(
     return {
         "report_type": "stock_pool_chan_analysis",
         "symbol": None,
-        "generated_at": utc_now(),
+        "generated_at": generated_at,
+        "model_version": MODEL_VERSION,
+        "limitations": ["pen_overlap_proxy", "no_sublevel_confirmation", "adjustment_unverified",
+                        "calendar_age_not_exchange_calendar"],
         "summary": (
             f"已用 {source} 的 {period} K线完成“{pool_name}”缠论结构分析："
             f"{len(items)} 只股票，{len(failed_symbols)} 只K线拉取失败。"
@@ -127,11 +156,14 @@ def generate_stock_pool_chan_analysis(
         },
         "tool_plan": {
             "data_source": source,
-            "kline_tool": "PBFXT",
+            "kline_tool": "PBFXT" if source == "tdx-official" else source,
         },
         "data_quality": {
             "failed_symbol_count": len(failed_symbols),
             "failed_symbols": failed_symbols,
+            "fetch_issues": fetch_issues or {},
+            "complete_count": sum(item["data_quality"]["status"] == "complete" for item in items),
+            "review_count": sum(item["data_quality"]["status"] != "complete" for item in items),
         },
         "signal_counts": signal_counts,
         "items": items,
@@ -149,12 +181,10 @@ def _merge_contained_bars(bars: list[dict[str, Any]]) -> list[dict[str, Any]]:
         last = merged[-1]
         if _contains(last, bar) or _contains(bar, last):
             direction = _merge_direction(merged, bar)
-            if direction >= 0:
-                last["high"] = max(last["high"], bar["high"])
-                last["low"] = max(last["low"], bar["low"])
-            else:
-                last["high"] = min(last["high"], bar["high"])
-                last["low"] = min(last["low"], bar["low"])
+            for key in ("high", "low"):
+                if (bar[key] >= last[key] if direction >= 0 else bar[key] <= last[key]):
+                    last[key] = bar[key]
+                    last[f"{key}_date"] = bar[f"{key}_date"]
             last["close"] = bar["close"]
             last["end_date"] = bar["trade_date"]
             last["volume"] = (last.get("volume") or 0) + (bar.get("volume") or 0)
@@ -169,14 +199,20 @@ def _detect_fractals(bars: list[dict[str, Any]]) -> list[dict[str, Any]]:
         previous = bars[index - 1]
         current = bars[index]
         following = bars[index + 1]
-        if current["high"] > previous["high"] and current["high"] > following["high"]:
-            fractals.append(_fractal("top", index, current, current["high"]))
-        if current["low"] < previous["low"] and current["low"] < following["low"]:
-            fractals.append(_fractal("bottom", index, current, current["low"]))
+        if (current["high"] > max(previous["high"], following["high"])
+                and current["low"] > max(previous["low"], following["low"])):
+            fractals.append({**_fractal("top", index, current, current["high"]),
+                             "confirmed_at": following["end_date"]})
+        if (current["low"] < min(previous["low"], following["low"])
+                and current["high"] < min(previous["high"], following["high"])):
+            fractals.append({**_fractal("bottom", index, current, current["low"]),
+                             "confirmed_at": following["end_date"]})
     return fractals
 
 
-def _build_strokes(fractals: list[dict[str, Any]], min_distance: int = 4) -> list[dict[str, Any]]:
+def _build_strokes(
+    fractals: list[dict[str, Any]], min_distance: int = 4, *, bars: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     pivots: list[dict[str, Any]] = []
     for fractal in fractals:
         if not pivots:
@@ -187,12 +223,15 @@ def _build_strokes(fractals: list[dict[str, Any]], min_distance: int = 4) -> lis
             if _is_more_extreme(fractal, last):
                 pivots[-1] = fractal
             continue
-        if fractal["index"] - last["index"] >= min_distance:
+        price_ordered = (fractal["price"] > last["price"] if fractal["type"] == "top"
+                         else fractal["price"] < last["price"])
+        if fractal["index"] - last["index"] >= min_distance and price_ordered:
             pivots.append(fractal)
 
     strokes: list[dict[str, Any]] = []
-    for start, end in zip(pivots, pivots[1:]):
+    for index, (start, end) in enumerate(zip(pivots, pivots[1:])):
         direction = "up" if start["type"] == "bottom" and end["type"] == "top" else "down"
+        interval = [bar for bar in (bars or []) if start["date"] <= bar["trade_date"] <= end["date"]]
         strokes.append(
             {
                 "direction": direction,
@@ -200,9 +239,12 @@ def _build_strokes(fractals: list[dict[str, Any]], min_distance: int = 4) -> lis
                 "end_date": end["date"],
                 "start_price": start["price"],
                 "end_price": end["price"],
-                "high": max(start["price"], end["price"]),
-                "low": min(start["price"], end["price"]),
+                "high": max([start["price"], end["price"]] + [bar["high"] for bar in interval]),
+                "low": min([start["price"], end["price"]] + [bar["low"] for bar in interval]),
                 "bar_span": end["index"] - start["index"],
+                # A following opposite pivot locks this endpoint in the current snapshot.
+                "confirmed": index < len(pivots) - 2,
+                "confirmed_at": pivots[index + 2].get("confirmed_at") if index < len(pivots) - 2 else None,
             }
         )
     return strokes
@@ -214,7 +256,7 @@ def _detect_centers(strokes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         group = strokes[index : index + 3]
         lower = max(stroke["low"] for stroke in group)
         upper = min(stroke["high"] for stroke in group)
-        if lower <= upper:
+        if lower < upper:
             center = {
                 "start_date": group[0]["start_date"],
                 "end_date": group[-1]["end_date"],
@@ -223,7 +265,8 @@ def _detect_centers(strokes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "stroke_start": index,
                 "stroke_end": index + 2,
             }
-            if centers and _center_overlaps(centers[-1], center):
+            if (centers and center["stroke_start"] <= centers[-1]["stroke_end"]
+                    and _center_overlaps(centers[-1], center)):
                 centers[-1]["end_date"] = center["end_date"]
                 centers[-1]["lower"] = max(centers[-1]["lower"], center["lower"])
                 centers[-1]["upper"] = min(centers[-1]["upper"], center["upper"])
@@ -292,19 +335,21 @@ def _candidate_signal(
                 ),
                 invalidation=f"跌破最近一笔低点 {latest_stroke['low']:.3f} 后重新评估强弱。",
             )
-        if latest_stroke["direction"] == "down":
+        if (latest_stroke["direction"] == "down" and latest_stroke["low"] > upper
+                and len(strokes) - 1 > latest_center["stroke_end"]
+                and strokes[-2]["direction"] == "up" and strokes[-2]["end_price"] > upper):
             return _signal(
                 "suspected_third_buy",
                 "疑似三买观察",
                 "等待回踩确认",
-                "价格位于中枢上方，最近一笔为回落笔，若回踩不回中枢，可视为三买候选。",
-                trigger=f"回踩不跌回 {upper:.3f}，再出现向上笔。",
+                "中枢形成后向上离开，随后稳定回落笔低点仍高于上沿。仅为笔级候选，未确认次级别走势。",
+                trigger=f"后续回踩继续守住 {upper:.3f}，并确认次级别向上结构。",
                 invalidation=f"跌回中枢上沿 {upper:.3f} 下方。",
             )
         return _signal(
             "upward_leave",
             "向上离开中枢",
-            "持有/观察",
+            "观察回踩结构",
             "价格在中枢上方运行，但尚未完成回踩确认。",
             trigger=f"回踩确认不跌回 {upper:.3f}。",
             invalidation=f"重新跌回 {upper:.3f} 下方。",
@@ -325,13 +370,15 @@ def _candidate_signal(
                 ),
                 invalidation=f"突破最近一笔高点 {latest_stroke['high']:.3f} 后重新评估强弱。",
             )
-        if latest_stroke["direction"] == "up":
+        if (latest_stroke["direction"] == "up" and latest_stroke["high"] < lower
+                and len(strokes) - 1 > latest_center["stroke_end"]
+                and strokes[-2]["direction"] == "down" and strokes[-2]["end_price"] < lower):
             return _signal(
                 "suspected_third_sell",
                 "疑似三卖观察",
-                "减仓/风控",
-                "价格位于中枢下方，最近一笔为反抽笔，若反抽不回中枢，可视为三卖候选。",
-                trigger=f"反抽不站回 {lower:.3f}，再出现向下笔。",
+                "复核下行风险",
+                "中枢形成后向下离开，随后稳定反弹笔高点仍低于下沿。仅为笔级候选，未确认次级别走势。",
+                trigger=f"后续反弹仍不能收回 {lower:.3f}，并确认次级别向下结构。",
                 invalidation=f"重新站回中枢下沿 {lower:.3f} 上方。",
             )
         return _signal(
@@ -397,6 +444,8 @@ def _bar(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "trade_date": trade_date,
         "end_date": trade_date,
+        "high_date": trade_date,
+        "low_date": trade_date,
         "open": float(raw["open"]),
         "high": float(raw["high"]),
         "low": float(raw["low"]),
@@ -424,7 +473,7 @@ def _fractal(kind: str, index: int, bar: dict[str, Any], price: float) -> dict[s
     return {
         "type": kind,
         "index": index,
-        "date": bar["trade_date"],
+        "date": bar["high_date" if kind == "top" else "low_date"],
         "price": round(price, 4),
         "high": round(bar["high"], 4),
         "low": round(bar["low"], 4),
@@ -438,7 +487,7 @@ def _is_more_extreme(candidate: dict[str, Any], current: dict[str, Any]) -> bool
 
 
 def _center_overlaps(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    return max(left["lower"], right["lower"]) <= min(left["upper"], right["upper"])
+    return max(left["lower"], right["lower"]) < min(left["upper"], right["upper"])
 
 
 def _signal(

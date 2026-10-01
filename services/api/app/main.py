@@ -261,6 +261,8 @@ def _quote_payload_to_output(snapshot: dict, payload: dict) -> dict:
         "pct_change": payload.get("pct_change"),
         "volume": payload.get("volume"),
         "amount": payload.get("amount"),
+        "turnover_rate": payload.get("turnover_rate"),
+        "market_time": payload.get("market_time"),
         "fetched_at": snapshot["fetched_at"],
         "payload": payload,
     }
@@ -1068,6 +1070,7 @@ def api_analyze_stock_pool_with_market_source(
     symbol_set = set(symbols)
     quotes: dict[str, dict] = {}
     failed_symbols: list[str] = []
+    fetch_issues: dict[str, str] = {}
     watchlist_by_symbol = {
         normalize_symbol(str(item["symbol"])): item for item in watchlist
     }
@@ -1080,8 +1083,9 @@ def api_analyze_stock_pool_with_market_source(
                 symbol=normalized_symbol,
                 source=payload.source,
             )
-        except HTTPException:
+        except HTTPException as exc:
             failed_symbols.append(normalized_symbol)
+            fetch_issues[normalized_symbol] = _market_fetch_issue(exc)
             continue
         quotes[normalized_symbol] = quote
         watchlist_item = watchlist_by_symbol.get(normalized_symbol)
@@ -1098,6 +1102,7 @@ def api_analyze_stock_pool_with_market_source(
         quotes=quotes,
         source=payload.source,
         failed_symbols=failed_symbols,
+        fetch_issues=fetch_issues,
         max_symbols=payload.max_symbols,
     )
     return _save_report(db, report=report, persist=payload.persist)
@@ -1120,6 +1125,7 @@ def api_analyze_stock_pool_with_chan(
     ][: payload.max_symbols]
     kline_by_symbol: dict[str, list[dict]] = {}
     failed_symbols: list[str] = []
+    fetch_issues: dict[str, str] = {}
 
     for symbol in symbols:
         try:
@@ -1130,8 +1136,9 @@ def api_analyze_stock_pool_with_chan(
                 period=payload.period,
                 limit=payload.kline_limit,
             )
-        except HTTPException:
+        except HTTPException as exc:
             failed_symbols.append(symbol)
+            fetch_issues[symbol] = _market_fetch_issue(exc)
             continue
         kline_by_symbol[symbol] = kline["bars"]
 
@@ -1142,9 +1149,24 @@ def api_analyze_stock_pool_with_chan(
         source=payload.source,
         period=payload.period,
         failed_symbols=failed_symbols,
+        fetch_issues=fetch_issues,
         max_symbols=payload.max_symbols,
     )
     return _save_report(db, report=report, persist=payload.persist)
+
+
+def _market_fetch_issue(exc: HTTPException) -> str:
+    # Surface a bounded category, never echo upstream bodies or credentials into a report.
+    message = str(exc.detail).split(" Response:", 1)[0]
+    if "TDX_API_KEY is not configured" in message:
+        return "provider_key_missing"
+    if any(f"HTTP {code}" in message for code in (401, 403)):
+        return "provider_permission"
+    if "HTTP 429" in message:
+        return "provider_rate_limit"
+    if any(f"HTTP {code}" in message for code in (500, 502, 503, 504)):
+        return "provider_unavailable"
+    return "provider_error"
 
 
 @app.post("/stock-pools/{pool_id}/decision-engine", response_model=ReportOut)

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .mcp_tools import McpServerConfig, McpStdioClient
+from .opportunity_prices import finite_number, local_timestamp
 from .repository import normalize_symbol, utc_now
 
 
@@ -113,6 +114,7 @@ def generate_stock_pool_market_analysis(
     quotes: dict[str, dict[str, Any]],
     source: str,
     failed_symbols: list[str] | None = None,
+    fetch_issues: dict[str, str] | None = None,
     max_symbols: int = 30,
 ) -> dict[str, Any]:
     max_symbols = max(1, min(int(max_symbols), 100))
@@ -124,14 +126,18 @@ def generate_stock_pool_market_analysis(
         normalize_symbol(str(item["symbol"])): item for item in watchlist
     }
 
+    generated_at = utc_now()
     items: list[dict[str, Any]] = []
     for symbol in pool_symbols:
-        quote = quotes.get(symbol)
-        price = quote.get("price") if quote else None
+        quote = _overview_quote(quotes.get(symbol), symbol, source, generated_at)
+        if symbol in (fetch_issues or {}):
+            quote["issues"].append(fetch_issues[symbol])
+        fields = quote["fields"]
+        price = fields["price"]
         holding = holding_by_symbol.get(symbol)
         watchlist_item = watchlist_by_symbol.get(symbol)
         name = _first_non_none(
-            quote.get("name") if quote else None,
+            fields.get("name"),
             holding.get("name") if holding else None,
             watchlist_item.get("name") if watchlist_item else None,
         )
@@ -141,22 +147,10 @@ def generate_stock_pool_market_analysis(
                 "name": name,
                 "position": _position_context(holding, price),
                 "watchlist": _watchlist_context(watchlist_item),
-                "quote": {
-                    "status": "success" if quote else "missing",
-                    "fields": {
-                        "price": price,
-                        "name": quote.get("name") if quote else None,
-                        "source": quote.get("source") if quote else source,
-                        "snapshot_id": quote.get("snapshot_id") if quote else None,
-                        "fetched_at": quote.get("fetched_at") if quote else None,
-                    },
-                },
+                "quote": quote,
                 "mcp_calls": {},
-                "action_hint": _action_hint(
-                    holding=holding,
-                    watchlist_item=watchlist_item,
-                    price=price,
-                ),
+                "action_hint": ("complete_market_data" if price is None else
+                                "hold_and_monitor" if holding else "watch_pool_candidate"),
             }
         )
 
@@ -171,10 +165,20 @@ def generate_stock_pool_market_analysis(
 
     pool_name = pool.get("name") or f"Pool {pool.get('id')}"
     quote_count = len(items) - len(missing_quote_items)
+    fresh = [item for item in items if item["quote"]["status"] == "success"]
+    changes = [item["quote"]["fields"]["pct_change"] for item in fresh
+               if item["quote"]["fields"]["pct_change"] is not None]
+    breadth = {
+        "up": sum(value > 0 for value in changes), "down": sum(value < 0 for value in changes),
+        "flat": sum(value == 0 for value in changes), "unknown": len(items) - len(changes),
+        "sample_size": len(changes),
+        "mean_change_pct": round(sum(changes) / len(changes), 2) if changes else None,
+    }
     return {
         "report_type": "stock_pool_market_analysis",
         "symbol": None,
-        "generated_at": utc_now(),
+        "generated_at": generated_at,
+        "model_version": "pool_quote_snapshot_v2",
         "summary": (
             f"已用 {source} 分析股票池“{pool_name}”：共 {len(items)} 只，"
             f"{quote_count} 只有行情，{len(missing_quote_items)} 只需补齐行情。"
@@ -203,7 +207,12 @@ def generate_stock_pool_market_analysis(
             "missing_quote_count": len(missing_quote_items),
             "quote_count": quote_count,
             "failed_symbols": failed_symbols,
+            "fetch_issues": fetch_issues or {},
+            "fresh_quote_count": len(fresh),
+            "quote_coverage_pct": round(100 * quote_count / len(items), 2) if items else None,
+            "market_time_known_count": sum(bool(item["quote"]["fields"]["market_time"]) for item in items),
         },
+        "breadth": breadth,
         "items": items,
         "next_steps": _next_steps(
             missing_quote_count=len(missing_quote_items),
@@ -211,6 +220,62 @@ def generate_stock_pool_market_analysis(
             action_counts=action_counts,
         ),
     }
+
+
+def _overview_quote(raw: dict | None, symbol: str, source: str, generated_at: str) -> dict:
+    raw = raw or {}
+    _, mismatch = _matching_symbol_data({"symbol": raw.get("symbol")}, symbol)
+    payload = raw.get("payload") if isinstance(raw.get("payload"), dict) else {}
+    issues = ["symbol_mismatch"] if mismatch else []
+    fields = {key: finite_number(raw.get(key, payload.get(key))) for key in (
+        "price", "open", "high", "low", "previous_close", "change", "pct_change", "amount", "turnover_rate",
+    )}
+    for key in ("price", "open", "high", "low", "previous_close"):
+        if fields[key] is not None and fields[key] <= 0:
+            fields[key] = None
+    for key in ("amount", "turnover_rate"):
+        if fields[key] is not None and fields[key] < 0:
+            fields[key] = None
+    if mismatch:
+        fields = dict.fromkeys(fields)
+    price, previous = fields["price"], fields["previous_close"]
+    if price is None:
+        fields["change"] = fields["pct_change"] = None
+        issues.append("missing_quote")
+    elif previous is not None:
+        change_pct = round((price / previous - 1) * 100, 4)
+        if fields["pct_change"] is not None and abs(fields["pct_change"] - change_pct) > 0.1:
+            issues.append("change_recomputed")
+        fields["change"] = round(price - previous, 4)
+        fields["pct_change"] = change_pct
+    if fields["pct_change"] is not None and fields["pct_change"] < -100:
+        fields["pct_change"] = None
+        issues.append("invalid_change")
+    status = "missing" if price is None else "success"
+    fetched_at = raw.get("fetched_at")
+    try:
+        age = (local_timestamp(generated_at) - local_timestamp(fetched_at)).total_seconds()
+        if age < -300 or age > 86400:
+            issues.append("stale_quote" if age > 86400 else "future_quote")
+            if price is not None:
+                status = "stale"
+    except (TypeError, ValueError, AttributeError):
+        issues.append("unknown_quote_time")
+        if price is not None:
+            status = "unverified"
+    # Fetch time is not exchange time. Never invent an exchange timestamp from it.
+    market_time = raw.get("market_time") or payload.get("market_time")
+    try:
+        age = (local_timestamp(generated_at) - local_timestamp(market_time)).total_seconds()
+        if age > 10 * 86400 or age < -300:
+            issues.append("stale_market_time" if age > 0 else "future_quote")
+            if price is not None:
+                status = "stale"
+    except (TypeError, ValueError, AttributeError):
+        market_time = None
+    fields.update(name=None if mismatch else raw.get("name"), source=raw.get("source") or source,
+                  snapshot_id=raw.get("snapshot_id"), fetched_at=fetched_at, market_time=market_time)
+    return {"status": status, "fields": fields, "issues": issues}
 
 
 def _default_config() -> McpServerConfig:

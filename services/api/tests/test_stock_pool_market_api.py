@@ -5,9 +5,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from fastapi import HTTPException
+
 from services.api.app.database import connect, init_db
 from services.api.app.main import (
     api_analyze_stock_pool_with_market_source,
+    api_analyze_stock_pool_with_chan,
     api_generate_daily_review,
 )
 from services.api.app.repository import (
@@ -18,7 +21,7 @@ from services.api.app.repository import (
     create_watchlist_item,
     get_default_stock_pool,
 )
-from services.api.app.schemas import StockPoolMarketAnalysisRequest
+from services.api.app.schemas import StockPoolChanAnalysisRequest, StockPoolMarketAnalysisRequest
 
 
 class StockPoolMarketApiTests(unittest.TestCase):
@@ -73,6 +76,20 @@ class StockPoolMarketApiTests(unittest.TestCase):
         self.assertEqual(report["payload"]["report_type"], "stock_pool_market_analysis")
         self.assertEqual(report["payload"]["data_quality"]["quote_count"], 2)
         self.assertEqual(report["payload"]["items"][0]["quote"]["fields"]["price"], 101)
+
+    def test_analysis_surfaces_safe_upstream_failure_without_echoing_response(self):
+        pool = get_default_stock_pool(self.connection)
+        create_watchlist_item(self.connection, {"pool_id": pool["id"], "symbol": "600519"})
+        for function, request, fetch in [
+            (api_analyze_stock_pool_with_market_source, StockPoolMarketAnalysisRequest(persist=False), "_fetch_quote_and_cache"),
+            (api_analyze_stock_pool_with_chan, StockPoolChanAnalysisRequest(persist=False), "_fetch_kline_and_cache"),
+        ]:
+            with mock.patch("services.api.app.main." + fetch, side_effect=HTTPException(
+                status_code=502, detail="tdx-official request failed with HTTP 503. Response: DO_NOT_EXPOSE_TOKEN",
+            )):
+                report = function(int(pool["id"]), request, self.connection)
+            self.assertEqual(report["payload"]["data_quality"]["fetch_issues"], {"600519": "provider_unavailable"})
+            self.assertNotIn("DO_NOT_EXPOSE_TOKEN", str(report))
 
     def test_daily_review_fetch_failures_are_scoped_to_pool(self) -> None:
         pool = get_default_stock_pool(self.connection)

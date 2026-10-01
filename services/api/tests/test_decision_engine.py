@@ -273,7 +273,7 @@ class DecisionEngineTests(unittest.TestCase):
 
     def test_report_records_fixed_horizon_and_reproducible_provenance(self) -> None:
         report = self.report(bars={"600519": trend_bars()})
-        self.assertEqual(report["model_version"], "rule_based_scenario_v1")
+        self.assertEqual(report["model_version"], "rule_based_scenario_v2")
         self.assertEqual(report["period"], "daily")
         self.assertEqual(report["generated_at"], "2026-05-01T00:00:00+00:00")
         self.assertEqual(report["scope"]["horizon_sessions"], 20)

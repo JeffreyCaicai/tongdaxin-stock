@@ -146,3 +146,12 @@ CREATE TABLE IF NOT EXISTS opportunity_runs (
     progress_json TEXT NOT NULL,
     result_json TEXT
 );
+
+CREATE TABLE IF NOT EXISTS opportunity_followups (
+    run_id TEXT PRIMARY KEY REFERENCES opportunity_runs(id),
+    status TEXT NOT NULL,
+    requested_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    progress_json TEXT NOT NULL,
+    result_json TEXT
+);

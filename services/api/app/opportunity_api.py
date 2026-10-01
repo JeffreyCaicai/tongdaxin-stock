@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from .database import get_db
 from .opportunity_jobs import cancel_run, read_run, start_run
+from .opportunity_tracking_jobs import cancel_followup, read_followup, start_followup
 from .repository import get_stock_pool, latest_by_symbol, list_holdings, list_watchlist
 
 router = APIRouter()
@@ -52,3 +53,29 @@ def stop_scan(run_id: str, db: sqlite3.Connection = Depends(get_db)):
     if read_run(db, run_id) is None:
         raise HTTPException(404, "Scan not found")
     return {"cancel_requested": cancel_run(run_id)}
+
+
+@router.get("/opportunities/{run_id}/followup")
+def get_followup(run_id: str, db: sqlite3.Connection = Depends(get_db)):
+    run = get_scan(run_id, db)
+    return read_followup(db, run)
+
+
+@router.post("/opportunities/{run_id}/followup", status_code=202)
+def refresh_followup(run_id: str, db: sqlite3.Connection = Depends(get_db)):
+    run = get_scan(run_id, db)
+    if run["status"] != "completed" or not run["result"]:
+        raise HTTPException(409, "Follow-up requires a completed recommendation snapshot")
+    if run["source"] not in {"tdx-official", "mock"}:
+        raise HTTPException(422, "Unsupported follow-up source")
+    path = Path(db.execute("PRAGMA database_list").fetchone()[2])
+    try:
+        return start_followup(db, path=path, run=run)
+    except RuntimeError:
+        raise HTTPException(409, "Another follow-up is running; wait or cancel it first") from None
+
+
+@router.delete("/opportunities/{run_id}/followup")
+def stop_followup(run_id: str, db: sqlite3.Connection = Depends(get_db)):
+    get_scan(run_id, db)
+    return {"cancel_requested": cancel_followup(run_id)}

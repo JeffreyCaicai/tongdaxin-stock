@@ -12,7 +12,8 @@ function setup() {
     documentElement: {},
     querySelectorAll: () => [],
     getElementById(id) {
-      if (!elements.has(id)) elements.set(id, {value: '', innerHTML: '', textContent: ''});
+      if (!elements.has(id)) elements.set(id, {value: '', innerHTML: '', textContent: '',
+        hidden: false, setAttribute() {}, focus() {}, scrollIntoView() {}, classList: {toggle() {}}});
       return elements.get(id);
     },
   };
@@ -76,7 +77,142 @@ const decisionReport = {model_version: 'v-test', calibration: 'uncalibrated', it
 async function main() {
   const caseName = process.argv[2];
   const app = setup();
-  if (caseName === 'holdings') {
+  if (caseName === 'chan-insights') {
+    const payload = {report_type:'stock_pool_chan_analysis', model_version:'daily_pen_overlap_v2',
+      generated_at:'2026-09-30T16:00:00+08:00', data_quality:{complete_count:1},
+      items:[{symbol:'600001', name:'<img onerror="bad">', structure_key:'above',
+        current_price:13, as_of:'2026-09-30', bar_count:240, confirmed_stroke_count:9,
+        data_quality:{status:'complete', issues:[]}, center_distance_pct:8.33,
+        latest_center:{lower:10, upper:12, start_date:'2026-09-01', end_date:'2026-09-25'},
+        signal:{type:'suspected_third_buy', confidence:'medium', status:'candidate'},
+        chart:{bars:[{trade_date:'2026-09-29', open:12, close:12.8, low:11.5, high:13},
+                     {trade_date:'2026-09-30', open:12.8, close:13, low:12.5, high:13.5}],
+          strokes:[{direction:'up', start_date:'2026-09-29', end_date:'2026-09-30',
+            start_price:11.5, end_price:13.5, confirmed:false}], centers:[]}},
+        {symbol:'600002', name:'Missing', data_quality:{status:'missing', issues:['insufficient_bars']},
+          signal:{type:'complete_market_data', confidence:'low'}}]};
+    app.run(`renderChanAnalysis(${JSON.stringify(payload)})`);
+    assert.ok(app.html().includes('结构收盘价'));
+    assert.ok(app.html().includes('2026-09-30'));
+    assert.ok(app.html().includes('stroke-dasharray'));
+    assert.ok(app.html().includes('class="chan-chart"'));
+    assert.ok(app.html().includes('仅为笔级候选'));
+    assert.ok(!app.html().includes('<img onerror'));
+    assert.ok(!app.html().includes('NaN'));
+    app.run("currentLanguage='en'; renderChanAnalysis(chanDisplay)");
+    assert.ok(app.html().includes('Structure close'));
+    assert.ok(app.html().includes('Pen-level candidate'));
+    assert.ok(!/[\u4e00-\u9fff]/u.test(app.html()), 'New report UI and reasons must be bilingual');
+    app.run("setChanFilter('review')");
+    const filtered = app.run('chanRowsHtml()');
+    assert.ok(filtered.includes('600002'));
+    assert.ok(!filtered.includes('600001'));
+    app.run("renderChanAnalysis({items:[{symbol:'600003', signal:{type:'upward_leave',reason:'ORIGINAL_REASON',trigger:'ORIGINAL_TRIGGER'}}]})");
+    assert.ok(app.html().includes('Historical report'));
+    assert.ok(app.html().includes('ORIGINAL_REASON'));
+    assert.ok(app.html().includes('ORIGINAL_TRIGGER'));
+    assert.ok(!app.html().includes('<svg'));
+  } else if (caseName === 'market-overview') {
+    const payload = {report_type:'stock_pool_market_analysis', model_version:'pool_quote_snapshot_v2',
+      generated_at:'2026-09-30T08:00:00Z', breadth:{up:1, down:1, flat:0, unknown:1, sample_size:2, mean_change_pct:0},
+      data_quality:{quote_count:2, fresh_quote_count:2}, items:[
+        {symbol:'600001', name:'Rise', quote:{status:'success', issues:[], fields:{price:11, pct_change:10, amount:200000000,
+          previous_close:10, fetched_at:'2026-09-30T08:00:00Z'}}},
+        {symbol:'600002', name:'Fall', quote:{status:'success', fields:{price:9, pct_change:-10, amount:100000000}}},
+        {symbol:'600003', name:'<svg onload="bad">', quote:{status:'missing', fields:{price:null, pct_change:null}}},
+      ]};
+    app.run(`renderPoolAnalysis(${JSON.stringify(payload)})`);
+    assert.ok(app.html().includes('本池报价涨跌'));
+    assert.ok(app.html().includes('+10.00%'));
+    assert.ok(app.html().includes('-10.00%'));
+    assert.ok(app.html().includes('读取时间'));
+    assert.ok(!app.html().includes('<svg onload'));
+    app.run("setOverviewFilter('up')");
+    assert.ok(app.run('overviewRowsHtml()').includes('600001'));
+    assert.ok(!app.run('overviewRowsHtml()').includes('600002'));
+    app.run("setOverviewFilter('all'); setOverviewSort('change_asc')");
+    let rows = app.run('overviewRowsHtml()');
+    assert.ok(rows.indexOf('600002') < rows.indexOf('600001'));
+    assert.ok(rows.indexOf('600003') > rows.indexOf('600001'), 'Missing values sort last');
+    app.run("currentLanguage='en'; renderMarketOverview(overviewDisplay)");
+    assert.ok(app.html().includes('Pool quote breadth'));
+    assert.ok(app.html().includes('Exchange time unavailable'));
+    assert.ok(!/[\u4e00-\u9fff]/u.test(app.html()));
+    app.run("renderMarketOverview({items:[],data_quality:{fetch_issues:{'600001':'provider_unavailable'}}})");
+    assert.ok(app.html().includes('Data service temporarily unavailable'));
+    assert.ok(app.html().includes('role="status"'));
+  } else if (caseName === 'workspace') {
+    const pending = app.run('runDecisionEngine()');
+    resolve(app.latest(), {...decisionReport, report_type:'stock_pool_decision_engine'});
+    await pending;
+    const count = app.requests.length;
+    app.run("switchWorkspace('opportunities')");
+    assert.equal(app.run('activeView'), 'opportunities');
+    assert.ok(!app.html().includes('v-test'));
+    app.run("switchWorkspace('stocks')");
+    assert.ok(app.html().includes('v-test'));
+    assert.equal(app.requests.length, count, 'Navigation must not run or fetch analyses');
+    const older = app.run('runChanAnalysis()');
+    const request = app.latest();
+    app.run("switchWorkspace('opportunities')");
+    resolve(request, report('runChanAnalysis', 'LATE_CHAN'));
+    await older;
+    assert.ok(!app.html().includes('LATE_CHAN'));
+    app.run("setMarketSource('mock'); switchWorkspace('stocks')");
+    assert.ok(!app.html().includes('v-test'), 'Different sources cannot share cached results');
+  } else if (caseName === 'decision-focus') {
+    const rows = [item, {...item, symbol:'000002', name:'Second', probabilities:{up:.1, range:.2, down:.7}}];
+    app.run(`renderDecisionEngine(${JSON.stringify({...decisionReport, items:rows})})`);
+    assert.ok(app.html().indexOf('decision-results') < app.html().indexOf('model-details'));
+    assert.ok(app.html().includes('rising &amp; steady'));
+    app.run("setDecisionFilter('down')");
+    const filtered = app.document.getElementById('decision-results').innerHTML;
+    assert.ok(filtered.includes('Second') && !filtered.includes('SH600001'));
+    app.run("setDecisionFilter('all')");
+    assert.ok(app.document.getElementById('decision-results').innerHTML.includes('SH600001'));
+  } else if (caseName === 'restore-view') {
+    const pending = app.run('restoreSavedDecision(analysisSeq)');
+    const request = app.latest();
+    assert.ok(request.path.includes('persist=false'));
+    app.run("switchWorkspace('opportunities')");
+    resolve(request, {payload:{decision_analysis:decisionReport}});
+    await pending;
+    assert.ok(!app.html().includes('v-test'));
+    app.run("switchWorkspace('stocks')");
+    const next = app.run('restoreSavedDecision(analysisSeq)');
+    const newest = app.latest();
+    resolve(newest, {payload:{decision_analysis:decisionReport, analysis_report_id:12, analysis_generated_at:'2026-09-30'}});
+    await next;
+    assert.ok(app.html().includes('v-test'));
+  } else if (caseName === 'sidebar') {
+    app.run(`cachedWatchlist = [{symbol:'SH600001', name:'<img src=x>'}, {symbol:'000002', name:'Second'}]; renderSidebar()`);
+    const sidebar = () => app.document.getElementById('sidebar-stocks').innerHTML;
+    assert.ok(sidebar().includes('&lt;img src=x&gt;') && !sidebar().includes('<img'));
+    app.document.getElementById('watch-search').value = 'second';
+    app.run('renderSidebar()');
+    assert.ok(sidebar().includes('Second') && !sidebar().includes('SH600001'));
+    app.run(`renderDecisionEngine(${JSON.stringify({...decisionReport, items:[item,{...item,symbol:'000002',name:'Second'}]})})`);
+    app.run('selectWatchStock(1)');
+    const selected = app.document.getElementById('decision-results').innerHTML;
+    assert.ok(selected.includes('Second') && !selected.includes('SH600001'));
+    app.run('clearStockSelection()');
+    assert.ok(app.document.getElementById('decision-results').innerHTML.includes('SH600001'));
+  } else if (caseName === 'history-view') {
+    const history = app.run('openOpportunityHistory()');
+    resolve(app.latest(), [{id:'saved',status:'completed',created_at:'2026-09-30'}]);
+    await history;
+    app.run("switchWorkspace('stocks'); switchWorkspace('history')");
+    assert.ok(app.html().includes('saved'));
+    const pending = app.run('runOpportunities()');
+    resolve(app.latest(), {id:'active-scan',status:'running',source:'tdx-official',progress:{completed:2,total:10}});
+    await pending;
+    const oldTimer = app.timers.length - 1;
+    app.run("switchWorkspace('stocks')");
+    assert.equal(app.timers[oldTimer],null);
+    app.run("switchWorkspace('opportunities')");
+    assert.ok(app.html().includes('2 / 10'));
+    assert.equal(typeof app.timers.at(-1),'function');
+  } else if (caseName === 'holdings') {
     const rows = [{quantity: 10, cost_price: 10, current_price: 12},
       {quantity: 20, cost_price: 5, current_price: null},
       {quantity: 0, cost_price: 100, current_price: 120}];
@@ -200,7 +336,7 @@ async function main() {
       app.run(`currentLanguage = '${lang}'; renderDecisionEngine(${JSON.stringify({payload: decisionReport})})`);
       const html = app.html();
       const header = html.match(/<thead>(.*?)<\/thead>/s)[1];
-      assert.equal((header.match(/<th(?:\s|>)/g) || []).length, 9);
+      assert.equal((header.match(/<th(?:\s|>)/g) || []).length, 6);
       assert.ok(!header.includes('概率') && !header.includes('Prob.'));
       assert.ok(html.includes('<details') && html.includes('<summary'));
       assert.ok(html.includes(score) && html.includes(warning));
@@ -227,7 +363,7 @@ async function main() {
     for (const lang of ['zh', 'en']) {
       app.run(`currentLanguage = '${lang}'; renderDecisionEngine(${JSON.stringify({payload: {...decisionReport, items: [second, item], comparison}})})`);
       const html = app.html();
-      const details = [...html.matchAll(/<details[^>]*>(.*?)<\/details>/gs)].map(match => match[1]);
+      const details = [...html.matchAll(/<details class="stock-detail"[^>]*>(.*?)<\/details>/gs)].map(match => match[1]);
       assert.equal(details.length, 2, 'Each stock needs its own expandable detail');
       assert.ok(!details[0].includes('2026-09-28T12:00:00Z'));
       assert.ok(details[1].includes('2026-09-28T12:00:00Z'));
@@ -339,6 +475,60 @@ async function main() {
       assert.ok(unknown.includes('custom&lt;origin&gt;'));
       assert.ok(!unknown.includes('price_origin_custom'));
     }
+  } else if (caseName === 'opportunity-horizons') {
+    const assessment = {sessions:5,stance:'favorable',score:90,as_of:'2026-09-30',issues:[],
+      evidence:[{value:'trend_positive',points:25}],metrics:{return_pct:3,index_return_pct:1,excess_pp:2,volume_ratio:1},
+      conditions:{ma_window:5,ma_price:12,review_below:11}};
+    const result = {items:[{...item,symbol:'600036',origin:'new',level:'not_selected',rank_score:30,
+      period_assessments:{'5':assessment,'60':{...assessment,stance:'avoid',score:20},
+        long_term:{stance:'insufficient',score:null,issues:['fundamentals_unverified']}},conditions:{}}],
+      selected:[],scope:{analyzed:1},discovery:{}};
+    app.run(`renderOpportunityJob(${JSON.stringify({id:'abc',source:'tdx-official',status:'completed',result})})`);
+    assert.ok(app.html().includes('opportunity-horizon'));
+    app.run("document.getElementById('opportunity-horizon').value='5'; renderOpportunityRows()");
+    let rows = app.document.getElementById('opportunity-rows').innerHTML;
+    assert.ok(rows.includes('600036') && rows.includes('条件较有利') && rows.includes('暂不支持参与'));
+    assert.ok(rows.includes('短线 · 5日 · 条件较有利'), 'Selected horizon must drive the primary assessment');
+    assert.ok(rows.includes('基本面') && !rows.includes('<img onerror'));
+    app.run("document.getElementById('opportunity-horizon').value='60'; renderOpportunityRows()");
+    assert.ok(!app.document.getElementById('opportunity-rows').innerHTML.includes('600036'));
+    app.run("document.getElementById('opportunity-view').value='all'; renderOpportunityRows()");
+    assert.ok(app.document.getElementById('opportunity-rows').innerHTML.includes('600036'));
+    app.run("setLanguage('en')");
+    assert.ok(app.document.getElementById('opportunity-rows').innerHTML.includes('Favorable conditions'));
+    delete result.items[0].period_assessments;
+    app.run(`renderOpportunityJob(${JSON.stringify({id:'abc',source:'tdx-official',status:'completed',result})})`);
+    app.run("document.getElementById('opportunity-view').value='all'; renderOpportunityRows()");
+    assert.ok(app.document.getElementById('opportunity-rows').innerHTML.includes('No period assessment was saved'));
+  } else if (caseName === 'opportunity-followup') {
+    const get = app.run("openOpportunityFollowup('abc')");
+    assert.equal(app.latest().path, '/opportunities/abc/followup');
+    assert.notEqual(app.latest().options.method, 'POST');
+    resolve(app.latest(),{run_id:'abc',source:'tdx-official',status:'not_started',report_type:'opportunity_followup'});
+    await get;
+    assert.ok(app.html().includes('更新表现'));
+    const update = app.run("refreshOpportunityFollowup('abc')");
+    assert.equal(app.latest().options.method, 'POST');
+    resolve(app.latest(),{run_id:'abc',source:'tdx-official',status:'running',report_type:'opportunity_followup',progress:{completed:0,total:1}});
+    await update;
+    const poll = app.timers.at(-1)();
+    const pendingPoll = app.latest();
+    app.run("switchWorkspace('stocks')");
+    resolve(pendingPoll,{run_id:'abc',source:'tdx-official',status:'completed',result:{items:[]}});
+    await poll;
+    assert.ok(!app.html().includes('收益观察窗口'));
+    const stat = {total:1,matured:0,pending:1,unavailable:0,mean_return_pct:null,mean_excess_pp:null,positive_fraction:null,worst_drawdown_pct:null};
+    const result = {is_demo:false,failures:[{symbol:'<failed>',kind:'kline_unavailable'}],items:[{symbol:'600036',name:'<img onerror=x>',group:'selected',period_assessments:null,
+      outcomes:{'20':{status:'pending',return_pct:null,excess_pp:null,benchmark_return_pct:null,max_drawdown_pct:null,issues:[]}}}],
+      summary:{'20':{selected:stat}},period_summary:{'20':{legacy:stat}},issues:[]};
+    app.run(`renderOpportunityFollowup(${JSON.stringify({run_id:'abc',source:'tdx-official',status:'completed',report_type:'opportunity_followup',result})})`);
+    let rows = app.document.getElementById('followup-results').innerHTML;
+    assert.ok(rows.includes('未到期') && !rows.includes('0.00%') && !rows.includes('<img onerror'));
+    assert.ok(rows.includes('&lt;failed&gt;') && rows.includes('日线读取失败'));
+    app.run("setLanguage('en')");
+    rows = app.document.getElementById('followup-results').innerHTML;
+    assert.ok(rows.includes('Pending') && rows.includes('Not recorded'));
+    assert.ok(app.html().includes('not executable trading returns'));
   } else if (caseName === 'opportunities') {
     const scan = app.run('runOpportunities()');
     assert.equal(app.latest().path, '/stock-pools/1/opportunities');

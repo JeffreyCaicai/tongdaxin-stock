@@ -3,8 +3,9 @@ from __future__ import annotations
 import math
 import json
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -370,14 +371,15 @@ class TdxOfficialMarketDataProvider:
             "instrument_type": identity.instrument_type,
             "price": price,
             "open": _first_float(hq_info, ("Open", "open", "今开", "开盘")),
-            "high": _first_float(hq_info, ("High", "high", "最高")),
-            "low": _first_float(hq_info, ("Low", "low", "最低")),
+            "high": _first_float(hq_info, ("MaxP", "High", "high", "最高")),
+            "low": _first_float(hq_info, ("MinP", "Low", "low", "最低")),
             "previous_close": previous_close,
             "change": change,
             "pct_change": pct_change,
             "volume": _first_float(hq_info, ("Volume", "volume", "Vol", "成交量")),
             "amount": _first_float(hq_info, ("Amount", "amount", "成交额")),
             "turnover_rate": _first_float(hq_info, ("HSL", "hsl", "turnover_rate", "换手率")),
+            "market_time": _tdx_official_quote_time(hq_info),
             "fetched_at": utc_now(),
             "raw": _jsonable(payload),
         }
@@ -801,6 +803,18 @@ def _tdx_official_period(period: str) -> str:
         "5m": "0",
     }
     return mapping.get(period_name, period_name)
+
+
+def _tdx_official_quote_time(hq_info: dict[str, Any]) -> str | None:
+    day, clock = str(hq_info.get("HQDate", "")), str(hq_info.get("HQTime", ""))
+    if len(day) != 8 or not day.isdigit() or not clock.isdigit() or len(clock) > 6:
+        return None
+    try:
+        return datetime.strptime(day + clock.zfill(6), "%Y%m%d%H%M%S").replace(
+            tzinfo=ZoneInfo("Asia/Shanghai")
+        ).isoformat()
+    except ValueError:
+        return None
 
 
 def _tdx_official_post(entry: str, body: dict[str, Any]) -> dict[str, Any]:

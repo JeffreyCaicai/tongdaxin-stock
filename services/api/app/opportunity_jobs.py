@@ -30,6 +30,7 @@ def read_run(db, run_id: str) -> dict | None:
 
 def recover_runs(db) -> None:
     db.execute("UPDATE opportunity_runs SET status = 'interrupted', updated_at = ? WHERE status IN ('queued', 'running')", (utc_now(),))
+    db.execute("UPDATE opportunity_followups SET status = 'interrupted', updated_at = ? WHERE status IN ('queued', 'running')", (utc_now(),))
     db.commit()
 
 

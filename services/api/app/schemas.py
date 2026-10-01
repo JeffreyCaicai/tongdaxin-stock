@@ -161,6 +161,8 @@ class MarketQuoteOut(BaseModel):
     pct_change: float | None = None
     volume: float | None = None
     amount: float | None = None
+    turnover_rate: float | None = None
+    market_time: str | None = None
     fetched_at: str
     payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -246,7 +248,7 @@ class StockPoolMarketAnalysisRequest(BaseModel):
 
 class StockPoolChanAnalysisRequest(BaseModel):
     source: str = "tdx-official"
-    period: str = "daily"
+    period: Literal["daily"] = "daily"
     persist: bool = True
     max_symbols: int = Field(default=30, ge=1, le=100)
     kline_limit: int = Field(default=240, ge=35, le=1000)

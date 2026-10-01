@@ -22,6 +22,33 @@ def run_ui_javascript(case: str) -> subprocess.CompletedProcess:
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is not installed")
 class StaticUiRuntimeTests(unittest.TestCase):
+    def test_chan_chart_quality_candidate_details_language_and_legacy_reports(self):
+        self.run_js("chan-insights")
+
+    def test_market_overview_breadth_filters_sort_nulls_and_language(self):
+        self.run_js("market-overview")
+
+    def test_period_assessments_filter_and_preserve_legacy_evidence(self):
+        self.run_js("opportunity-horizons")
+
+    def test_followup_read_refresh_nulls_language_and_request_race(self):
+        self.run_js("opportunity-followup")
+
+    def test_workspace_navigation_preserves_results_without_running_analysis(self):
+        self.run_js("workspace")
+
+    def test_decision_results_prioritize_stocks_and_filter_scenarios(self):
+        self.run_js("decision-focus")
+
+    def test_saved_analysis_restore_is_read_only_and_cannot_replace_new_view(self):
+        self.run_js("restore-view")
+
+    def test_sidebar_search_and_stock_selection_are_safe_and_explicit(self):
+        self.run_js("sidebar")
+
+    def test_history_and_pending_scan_survive_navigation(self):
+        self.run_js("history-view")
+
     def test_opportunity_poll_cannot_overwrite_newer_analysis_and_labels_are_bilingual(self):
         self.run_js("opportunities")
 

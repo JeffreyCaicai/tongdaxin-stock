@@ -143,6 +143,22 @@ class MarketDataProviderTests(unittest.TestCase):
         self.assertEqual(quote["price"], 1215.0)
         self.assertEqual(quote["pct_change"], 1.25)
 
+    def test_tdx_official_provider_reads_actual_hq_extremes_and_exchange_clock(self) -> None:
+        for day, time_value, expected in [
+            ("20260930", "153002", "2026-09-30T15:30:02+08:00"),
+            (20260930, 93001, "2026-09-30T09:30:01+08:00"),
+            ("20260930", None, None), ("20260230", "153002", None),
+        ]:
+            with self.subTest(day=day, time_value=time_value):
+                payload = {"BaseInfo": {"Code": "688630", "Name": "Example"},
+                           "HQInfo": {"Now": 388.68, "Close": 397.17, "MaxP": 404.97,
+                                      "MinP": 384.05, "HQDate": day, "HQTime": time_value}}
+                with mock.patch("services.api.app.market_data._tdx_official_post", return_value=payload):
+                    quote = get_market_data_provider("tdx-official").fetch_quote("688630")
+                self.assertEqual(quote["high"], 404.97)
+                self.assertEqual(quote["low"], 384.05)
+                self.assertEqual(quote["market_time"], expected)
+
     def test_tdx_official_provider_normalizes_kline_items(self) -> None:
         def fake_urlopen(request, timeout=None):  # type: ignore[no-untyped-def]
             body = json.loads(request.data.decode("utf-8"))

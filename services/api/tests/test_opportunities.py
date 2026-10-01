@@ -93,6 +93,25 @@ class RankingTests(unittest.TestCase):
         self.assertEqual(report["selected"],[])
         self.assertIn("missing_index",report["items"][0]["selection_reasons"])
 
+    def test_new_scan_saves_period_evidence_with_actual_market_regime(self):
+        with patch("services.api.app.opportunities.utc_now", return_value="2026-05-01T00:00:00+00:00"):
+            report = build_opportunity_report(candidates=[{"symbol":"600036","origin":"new"}],
+                quotes={"600036": self.quote}, klines={"600036":self.bars}, index_bars=self.args["index_bars"],
+                source="mock", discovery={}, failures=[], pool=self.args["pool"])
+        self.assertIn("period_assessments", report["items"][0])
+        # An available rising benchmark must not be silently passed as unknown.
+        self.assertEqual(report["market_regime"]["regime"], "uptrend")
+        self.assertNotIn("market_caution", report["items"][0]["period_assessments"]["60"]["issues"])
+
+    def test_period_regime_cannot_use_unclosed_index_bar(self):
+        index = self.args["index_bars"] + [{"trade_date":"2026-05-01", "open":1, "close":1,
+                                           "high":1.01, "low":.99, "volume":10000}]
+        with patch("services.api.app.opportunities.utc_now", return_value="2026-05-01T02:00:00+00:00"):
+            report = build_opportunity_report(candidates=[{"symbol":"600036","origin":"new"}],
+                quotes={"600036":self.quote}, klines={"600036":self.bars}, index_bars=index,
+                source="mock", discovery={}, failures=[], pool=self.args["pool"])
+        self.assertNotIn("market_caution", report["items"][0]["period_assessments"]["60"]["issues"])
+
     def test_priority_and_extended_wait(self):
         item = generate_stock_pool_decision_engine(**self.args)["items"][0]
         item["probabilities"] = {"up":.65,"range":.25,"down":.10}

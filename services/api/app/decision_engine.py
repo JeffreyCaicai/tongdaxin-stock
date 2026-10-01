@@ -12,7 +12,7 @@ from .repository import normalize_symbol, utc_now
 
 SCENARIOS = ("up", "range", "down")
 SOFTMAX_TEMPERATURE = 1.35
-MODEL_VERSION = "rule_based_scenario_v1"
+MODEL_VERSION = "rule_based_scenario_v2"
 STALE_AFTER_CALENDAR_DAYS = 7
 MAX_ENDPOINT_LAG_SESSIONS = 3
 
@@ -228,7 +228,7 @@ def _decision_item(
     if len(bars) < 20 or any(bar["volume"] is None for bar in bars[-20:]):
         indicator["volume_ratio"] = None
     chan = (
-        analyze_chan_structure(symbol=symbol, name=name, bars=bars, period=period)
+        analyze_chan_structure(symbol=symbol, name=name, bars=bars, period=period, as_of=generated_at)
         if bars
         else None
     )
