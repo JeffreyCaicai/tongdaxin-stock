@@ -529,6 +529,88 @@ async function main() {
     rows = app.document.getElementById('followup-results').innerHTML;
     assert.ok(rows.includes('Pending') && rows.includes('Not recorded'));
     assert.ok(app.html().includes('not executable trading returns'));
+  } else if (caseName === 'followup-retained') {
+    const run = {run_id:'abc',source:'tdx-official',status:'completed',progress:{completed:0,total:1},
+      generated_at:'2026-01-05T08:00:00Z',requested_at:'2026-01-09T08:00:00Z',
+      result:{items:[],summary:{},period_summary:{},benchmark_as_of:'2026-01-08',evaluated_at:'2026-01-08T08:00:00Z'}};
+    for (const language of ['zh', 'en']) {
+      app.run(`currentLanguage='${language}'`);
+      for (const status of ['queued','running','failed','cancelled','interrupted']) {
+        app.run(`renderOpportunityFollowup(${JSON.stringify({...run,status})})`);
+        assert.ok(app.html().includes('id="followup-retained"'), `${status} must identify retained results`);
+        assert.ok(app.html().includes(language === 'zh' ? '上次保存的结果' : 'Previously saved results'));
+        assert.ok(app.html().includes('2026-01-08'), 'Keep the evidence date visible');
+        assert.ok(!app.html().includes('2026-01-09'), 'The attempted refresh date is not the evidence date');
+        assert.ok(app.html().includes('followup-horizon'), 'Retained outcomes must remain inspectable');
+        if (language === 'en') assert.ok(!/[\u4e00-\u9fff]/u.test(app.html()));
+      }
+      app.run(`renderOpportunityFollowup(${JSON.stringify(run)})`);
+      assert.ok(!app.html().includes('id="followup-retained"'), 'A completed update displays its new results');
+      app.run(`renderOpportunityFollowup(${JSON.stringify({...run,status:'failed',result:null})})`);
+      assert.ok(!app.html().includes('id="followup-retained"'), 'No retained-results claim without a saved result');
+      assert.ok(!app.html().includes('id="followup-horizon"'));
+    }
+  } else if (caseName === 'followup-horizon') {
+    const run = {run_id:'abc',source:'tdx-official',status:'running',progress:{completed:0,total:1},
+      result:{items:[],summary:{},period_summary:{}}};
+    app.run(`renderOpportunityFollowup(${JSON.stringify(run)})`);
+    app.run("document.getElementById('followup-horizon').value='60'; renderFollowupResults()");
+    let poll = app.timers.at(-1)();
+    resolve(app.latest(),run);
+    await poll;
+    assert.equal(app.document.getElementById('followup-horizon').value,'60','Polling must preserve the selected horizon');
+    poll = app.timers.at(-1)();
+    app.latest().reject(new Error('offline'));
+    await poll;
+    assert.equal(app.document.getElementById('followup-horizon').value,'60','Reconnect must preserve the selected horizon');
+    poll = app.timers.at(-1)();
+    resolve(app.latest(),{...run,status:'completed'});
+    await poll;
+    assert.equal(app.document.getElementById('followup-horizon').value,'60');
+    const refresh = app.run("refreshOpportunityFollowup('abc')");
+    resolve(app.latest(),run);
+    await refresh;
+    assert.equal(app.document.getElementById('followup-horizon').value,'60','Manual refresh must preserve the selected horizon');
+    app.run("document.getElementById('followup-horizon').value='120'; renderFollowupResults(); setLanguage('en')");
+    assert.equal(app.document.getElementById('followup-horizon').value,'120','Language changes must use the current selection');
+    app.run("document.getElementById('followup-horizon').value='5'; renderFollowupResults()");
+    poll = app.timers.at(-1)();
+    app.latest().reject(new Error('offline after changing language and horizon'));
+    await poll;
+    assert.equal(app.document.getElementById('followup-horizon').value,'5','Reconnect must not restore a horizon captured before the latest selection');
+    app.run(`renderOpportunityFollowup(${JSON.stringify({...run,run_id:'another',status:'completed'})})`);
+    assert.equal(app.document.getElementById('followup-horizon').value,'20','Another run starts with the default horizon');
+  } else if (caseName === 'followup-resume') {
+    const run = {run_id:'abc',source:'tdx-official',status:'running',progress:{completed:0,total:1},
+      result:{items:[],summary:{},period_summary:{}}};
+    const initial = app.run("openOpportunityFollowup('abc')");
+    resolve(app.latest(),run);
+    await initial;
+    app.run("document.getElementById('followup-horizon').value='120'; renderFollowupResults()");
+    for (let attempt=0; attempt<4; attempt++) {
+      const poll = app.timers.at(-1)();
+      app.latest().reject(new Error('offline'));
+      await poll;
+    }
+    assert.ok(app.html().includes('重新连接进度'));
+    const resume = app.run("openOpportunityFollowup('abc')");
+    assert.notEqual(app.latest().options.method,'POST','Reconnect reads status without starting another refresh');
+    resolve(app.latest(),{...run,status:'completed'});
+    await resume;
+    assert.equal(app.document.getElementById('followup-horizon').value,'120','Explicit reconnect must retain the same run selection');
+    for (const action of ['openOpportunityFollowup','refreshOpportunityFollowup']) {
+      const offline = app.run(`${action}('abc')`);
+      app.latest().reject(new Error('still offline'));
+      await offline;
+      const recovered = app.run(`${action}('abc')`);
+      resolve(app.latest(),{...run,status:'completed'});
+      await recovered;
+      assert.equal(app.document.getElementById('followup-horizon').value,'120','A failed request must not discard the same-run selection');
+    }
+    const another = app.run("openOpportunityFollowup('another')");
+    resolve(app.latest(),{...run,run_id:'another',status:'completed'});
+    await another;
+    assert.equal(app.document.getElementById('followup-horizon').value,'20');
   } else if (caseName === 'opportunities') {
     const scan = app.run('runOpportunities()');
     assert.equal(app.latest().path, '/stock-pools/1/opportunities');

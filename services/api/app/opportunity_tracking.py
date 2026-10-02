@@ -10,6 +10,20 @@ SESSIONS = (5, 20, 60, 120)
 MODEL = "opportunity_followup_v1"
 
 
+def _post_signal_bars(bars: list[dict], signal_date: str) -> list[dict]:
+    observed = []
+    for bar in bars:
+        try:
+            day = date.fromisoformat(str(bar.get("trade_date", ""))[:10]).isoformat()
+        except ValueError:
+            # An undated defect cannot safely be assigned outside the window.
+            observed.append(bar)
+            continue
+        if day > signal_date:
+            observed.append(bar)
+    return observed
+
+
 def _drawdown(prices: list[float]) -> float:
     peak, worst = prices[0], 0.0
     for price in prices:
@@ -53,7 +67,11 @@ def evaluate_followup(*, report: dict, klines: dict, index_bars: list[dict], as_
     items = []
     selected = set(report.get("selected", []))
     for item in report.get("items", []):
-        stock, stock_issues = completed_daily_bars(klines.get(item["symbol"], []), as_of)
+        raw_stock = klines.get(item["symbol"], [])
+        stock, stock_issues = completed_daily_bars(raw_stock, as_of)
+        observed_issues = stock_issues
+        if signal_date:
+            _, observed_issues = completed_daily_bars(_post_signal_bars(raw_stock, signal_date), as_of)
         prices = {row["trade_date"]: row for row in stock}
         outcomes = {}
         for sessions in SESSIONS:
@@ -71,19 +89,22 @@ def evaluate_followup(*, report: dict, klines: dict, index_bars: list[dict], as_
                    and row["volume"] is not None and row["volume"] > 0 for row in stock):
                 outcome["issues"] = ["missing_benchmark_sessions"]
                 continue
+            # Pending means the observed prefix is usable, not merely that
+            # fewer than N benchmark sessions have elapsed.
+            sample = calendar[:sessions]
+            quality_issues = observed_issues if len(calendar) < sessions else stock_issues
+            if quality_issues or any(row["trade_date"] not in prices for row in sample):
+                outcome["issues"] = quality_issues or ["missing_stock_sessions"]
+                continue
+            window = [prices[row["trade_date"]] for row in sample]
+            if any(row["volume"] is None or row["volume"] <= 0 for row in window):
+                outcome["issues"] = ["inactive_period_sessions"]
+                continue
             if len(calendar) < sessions:
                 if stale_index:
                     outcome["issues"] = ["stale_benchmark"]
                 else:
                     outcome["status"] = "pending"
-                continue
-            sample = calendar[:sessions]
-            if stock_issues or any(row["trade_date"] not in prices for row in sample):
-                outcome["issues"] = stock_issues or ["missing_stock_sessions"]
-                continue
-            window = [prices[row["trade_date"]] for row in sample]
-            if any(row["volume"] is None or row["volume"] <= 0 for row in window):
-                outcome["issues"] = ["inactive_period_sessions"]
                 continue
             start, end = window[0]["open"], window[-1]["close"]
             stock_return = (end / start - 1) * 100

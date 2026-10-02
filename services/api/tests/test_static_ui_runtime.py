@@ -34,6 +34,15 @@ class StaticUiRuntimeTests(unittest.TestCase):
     def test_followup_read_refresh_nulls_language_and_request_race(self):
         self.run_js("opportunity-followup")
 
+    def test_followup_retained_results_are_distinguished_from_the_current_attempt(self):
+        self.run_js("followup-retained")
+
+    def test_followup_horizon_survives_poll_refresh_and_reconnect(self):
+        self.run_js("followup-horizon")
+
+    def test_followup_resume_preserves_same_run_horizon(self):
+        self.run_js("followup-resume")
+
     def test_workspace_navigation_preserves_results_without_running_analysis(self):
         self.run_js("workspace")
 

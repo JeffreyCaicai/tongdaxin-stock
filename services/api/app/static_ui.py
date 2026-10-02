@@ -900,7 +900,8 @@ def index_html() -> str:
       followupWindow:"收益观察窗口", followupMethod:"推荐日后下一交易日开盘至第N个交易日收盘；与沪深300严格同日期比较，起终价来自同一批TQFlag=11日线。这里只统计价格表现，不是可执行交易收益；未计费用、滑点、分红现金或涨跌停成交限制。",
       followupCaution:"成熟样本才纳入统计；候选经过预筛选且样本存在重叠，不能据此认定预测准确率或未来胜率。",
       followupNotStarted:"尚未更新后续行情。", followupFailed:"表现更新失败，原始推荐记录未改动。",
-      followupSnapshot:"推荐时间", followupAsOf:"行情观察截至", followupUpdated:"本次更新", followupOriginal:"查看当时推荐",
+      followupRetained:"下方保留上次保存的结果，本次更新尚未产出新结果。请以所示行情日期与评估时间为准。",
+      followupSnapshot:"推荐时间", followupAsOf:"行情观察截至", followupUpdated:"结果评估时间", followupOriginal:"查看当时推荐",
       followupBaseGroups:"原版20日名单分组", followupPeriodGroups:"当时分周期判断分组", followupDetails:"逐股结果",
       followupGroup:"当时分组", followupSelected:"入选", followupNotSelected:"未入选", followupExcluded:"数据/范围排除",
       followupMatured:"已到期 / 全部", followupPending:"未到期", followupUnavailable:"无法评估",
@@ -961,7 +962,8 @@ def index_html() -> str:
       followupWindow:"Return observation window", followupMethod:"Next session open after the recommendation date to the Nth session close; identical dates versus CSI 300, with both endpoints from one TQFlag=11 daily batch. Price observations, not executable trading returns; no costs, slippage, cash dividends or limit-lock execution constraints.",
       followupCaution:"Only matured samples enter statistics. Screened and overlapping samples do not establish predictive accuracy or future win rates.",
       followupNotStarted:"Subsequent prices have not been refreshed.", followupFailed:"Performance update failed. Original recommendations are unchanged.",
-      followupSnapshot:"Recommendation time", followupAsOf:"Benchmark through", followupUpdated:"Refreshed", followupOriginal:"View original scan",
+      followupRetained:"Previously saved results are shown below. This update has not produced new results; use the displayed price and evaluation dates.",
+      followupSnapshot:"Recommendation time", followupAsOf:"Benchmark through", followupUpdated:"Results evaluated at", followupOriginal:"View original scan",
       followupBaseGroups:"Original 20-day shortlist groups", followupPeriodGroups:"Original horizon assessment groups", followupDetails:"Stock-level outcomes",
       followupGroup:"Original group", followupSelected:"Selected", followupNotSelected:"Not selected", followupExcluded:"Quality / scope excluded",
       followupMatured:"Matured / all", followupPending:"Pending", followupUnavailable:"Unavailable",
@@ -1265,6 +1267,7 @@ def index_html() -> str:
       });
     }
     let cachedReview = null;
+    let followupSelection = null;
     let opportunityTimer = null;
     let cachedPools = [];
     let cachedWatchlist = [];
@@ -1620,10 +1623,13 @@ def index_html() -> str:
     }
     function openOpportunityFollowup(id) {
       switchView("history");
-      return requestAnalysis(`/opportunities/${encodeURIComponent(id)}/followup`, {}, renderOpportunityFollowup, "followupFailed");
+      return requestOpportunityFollowup(id, {});
     }
     function refreshOpportunityFollowup(id) {
-      return requestAnalysis(`/opportunities/${encodeURIComponent(id)}/followup`, {method:"POST"}, renderOpportunityFollowup, "followupFailed");
+      return requestOpportunityFollowup(id, {method:"POST"});
+    }
+    function requestOpportunityFollowup(id, options) {
+      return requestAnalysis(`/opportunities/${encodeURIComponent(id)}/followup`, options, renderOpportunityFollowup, "followupFailed");
     }
     async function cancelOpportunityFollowup(id) {
       try { await api(`/opportunities/${encodeURIComponent(id)}/followup`, {method:"DELETE"}); }
@@ -1631,19 +1637,22 @@ def index_html() -> str:
     }
     function renderOpportunityFollowup(run, retry = 0) {
       if (run.source !== marketSource()) return;
-      cachedReview = {...run, report_type:"opportunity_followup"};
+      const horizon = (followupSelection?.runId === run.run_id && followupSelection?.source === run.source ? followupSelection.horizon : null) || run.followupHorizon || "20";
+      cachedReview = {...run, report_type:"opportunity_followup", followupHorizon:horizon};
+      followupSelection = {runId:run.run_id, source:run.source, horizon};
       const report = run.result, active = ["running","queued"].includes(run.status), p = run.progress || {};
       document.getElementById("review").innerHTML = `<h3>${t("followupTitle")}${report?.is_demo ? ` · ${t("opportunityDemo")}` : ""}</h3>
         <div class="toolbar"><button class="secondary" onclick="openOpportunityRun('${run.run_id}')">${t("followupOriginal")}</button>
         ${active ? `<button class="secondary" onclick="cancelOpportunityFollowup('${run.run_id}')">${t("followupCancel")}</button>` : `<button onclick="refreshOpportunityFollowup('${run.run_id}')">${t("followupRefresh")}</button>`}</div>
         <p class="tracking-meta">${escapeHtml(run.source)} · ${t("followupSnapshot")}: ${escapeHtml(fullTime(run.generated_at || report?.generated_at))}</p>
         ${active ? `<p role="status">${t("running")} ${p.completed || 0} / ${p.total || 0}</p><progress class="opportunity-progress" max="${p.total || 1}" value="${p.completed || 0}"></progress>` : run.status !== "completed" ? `<p role="status">${t(run.status === "not_started" ? "followupNotStarted" : run.status === "failed" ? "followupFailed" : run.status)}</p>` : ""}
+        ${report && run.status !== "completed" ? `<p id="followup-retained" class="data-alert" role="status">${t("followupRetained")}</p>` : ""}
         ${report ? `<p class="tracking-meta">${t("followupAsOf")}: ${escapeHtml(report.benchmark_as_of || "-")} · ${t("followupUpdated")}: ${escapeHtml(fullTime(report.evaluated_at))}</p>
           <label for="followup-horizon">${t("followupWindow")}</label><div class="toolbar"><select id="followup-horizon" onchange="renderFollowupResults()">${["5","20","60","120"].map(key=>`<option value="${key}" ${key === "20" ? "selected" : ""}>${t(`period${key}`)}</option>`).join("")}</select></div>
           <div id="followup-results"></div>` : ""}
         <p class="tracking-meta">${t("followupMethod")}</p><p class="tracking-meta">${t("followupCaution")}</p>`;
       if (report) {
-        document.getElementById("followup-horizon").value = run.followupHorizon || "20";
+        document.getElementById("followup-horizon").value = horizon;
         renderFollowupResults();
       }
       if (!active) return;
@@ -1677,6 +1686,7 @@ def index_html() -> str:
       if (!report) return;
       const horizon = document.getElementById("followup-horizon").value || "20";
       cachedReview.followupHorizon = horizon;
+      followupSelection = {runId:cachedReview.run_id, source:cachedReview.source, horizon};
       document.getElementById("followup-results").innerHTML = `
         ${(report.issues || []).map(issue=>`<p role="status">${escapeHtml(t(issue))}</p>`).join("")}
         ${report.failures?.length ? `<details class="stock-detail"><summary>${t("opportunityErrors")} (${report.failures.length})</summary>${report.failures.map(f=>`<p>${escapeHtml(f.symbol)}: ${escapeHtml(t(f.kind))}</p>`).join("")}</details>` : ""}
