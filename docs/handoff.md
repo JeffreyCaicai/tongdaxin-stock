@@ -6,7 +6,8 @@ The original handoff for this project is kept at:
 tongdaxin_stock_handoff.md (repository root)
 ```
 
-Use it as the source of truth for product boundaries, data-source research, MVP scope, and roadmap decisions.
+Use it for the original product and data-source context. The current notes below and later user decisions
+supersede its early MVP defaults; do not restore removed trading panels or demo-data behavior.
 
 ## Current Implementation Notes (2026-09-30)
 
@@ -35,3 +36,13 @@ See [the repair plan](superpowers/plans/2026-09-30-analysis-correctness.md) and 
 - `POST /stock-pools/{id}/opportunities` starts a background job; GET same path lists history; `GET /opportunities/{id}` reads status/result; DELETE requests cancellation. Runs persist in `opportunity_runs`. Single-process local service supports one scan at a time with three data workers. Restart marks interrupted jobs; there is no distributed job queue.
 - Frontend has progress, cancel, origin filters, all assessments, reasons, conditions and details, plus saved history. Default source for new browser storage is now official Token; existing source choice is preserved.
 - This is an uncalibrated technical research shortlist. No fundamentals, industry/style attribution, event research, automatic execution or validated win-rate claims. See [Ganlee retrospective check](research/2026-10-01-ganlee-case.md).
+
+## Chan Research Foundation and Reports (2026-10-02)
+
+- The previous research foundation is on `main` through `b4baf36`. The frozen model remains `daily_pen_overlap_v2`; fingerprint checks reject changes to its analysis, price handling or identity dependency.
+- `scripts/validate_chan.py` supports explicit bounded `capture` and offline `replay`, `frame`, `report`. Minute data is for timestamp/cache validation only, not multi-period candidate confirmation.
+- `report --language zh|en` exports self-contained HTML from a fixed dataset and explicit cutoff. It includes per-security coverage, actual historical closes, latest baseline structure, immutable first candidates, state events and 5/20/60-session price observations. Raw evidence retains its original language. No new server, UI route, live request, credential access or personal database write is involved in report/replay/frame.
+- Daily quality diagnostics filter future data before validation. Calendar-verified gaps join the replay timeline, including trailing missing sessions; absent prices cannot invalidate a candidate using the previous close. Unknown calendars do not imply guessed weekday sessions. Flagged endpoint prices are excluded from valid-date summaries.
+- Calendar/basis verification gates remain unchanged. The existing real 600519 / SH000300 snapshot has 240 daily bars each, ending 2026-09-30, with zero candidates and unverified calendar/basis. Do not relabel this as current prices, validated returns or improved accuracy.
+- Outputs are atomic and exclusive, including rejection of dangling symlinks. Real inputs/HTML reports belong in ignored `data/cache/chan_validation/`; browser QA belongs outside version control.
+- See [offline validation guide](chan-validation.md) for commands and evidence boundaries. New structural engines, rolling out-of-sample evaluation and execution-cost models remain future work, not implemented claims.

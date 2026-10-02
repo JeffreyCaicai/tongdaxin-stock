@@ -6,7 +6,7 @@ from typing import Callable
 
 from .chan_baseline import MODEL_VERSION, RULE_CONFIG, analyze_frame, baseline_fingerprint, visible_daily_prefix
 from .chan_dataset import canonical_symbol, digest
-from .market_time import finite_number, price_values
+from .market_time import finite_number, local_timestamp, price_values
 
 
 def _candidate(analysis: dict, at: str) -> dict | None:
@@ -49,6 +49,7 @@ def replay_symbol(*, symbol: str, bars: list[dict], as_of: str, quality_issues: 
     fingerprint = baseline_fingerprint()
     symbol = canonical_symbol(symbol)
     visible = visible_daily_prefix(bars, as_of=as_of)
+    cutoff = local_timestamp(as_of)
     analyze = analyzer or analyze_frame
     result = {"frames": [], "observations": [], "events": [], "issues": []}
     if len(visible) < RULE_CONFIG["minimum_bars"]:
@@ -70,9 +71,17 @@ def replay_symbol(*, symbol: str, bars: list[dict], as_of: str, quality_issues: 
             if kind != "data_unavailable":
                 state["last_valid_status"] = kind
 
-    for count in range(RULE_CONFIG["minimum_bars"], len(visible) + 1):
+    days = {bar["trade_date"] for bar in visible}
+    days.update(issue["bar_key"] for issue in quality_issues if issue["scope"] == "bar"
+                and issue["period"] == "daily"
+                and local_timestamp(issue["bar_key"] + "T15:00:00+08:00") <= cutoff)
+    count = 0
+    for day in sorted(days):
+        while count < len(visible) and visible[count]["trade_date"] <= day:
+            count += 1
+        if count < RULE_CONFIG["minimum_bars"]:
+            continue
         prefix = visible[:count]
-        day = prefix[-1]["trade_date"]
         at = day + "T15:00:00+08:00"
         external = _visible_issues(quality_issues, day)
         data_hash = _prefix_hash(prefix, external, fingerprint)
@@ -80,7 +89,7 @@ def replay_symbol(*, symbol: str, bars: list[dict], as_of: str, quality_issues: 
         quality = deepcopy(analysis["data_quality"])
         quality["external_issues"] = [i["code"] for i in external]
         try:
-            price = price_values(prefix[-1])
+            price = price_values(prefix[-1]) if prefix[-1]["trade_date"] == day else None
         except (ValueError, TypeError):
             price = None
             quality["external_issues"].append("invalid_ohlc")

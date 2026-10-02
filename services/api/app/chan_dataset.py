@@ -202,9 +202,12 @@ def load_dataset(path: Path) -> dict:
 
 
 def write_json_exclusive(path: Path, value: dict) -> None:
+    write_bytes_exclusive(path, canonical_json(value))
+
+
+def write_bytes_exclusive(path: Path, raw: bytes) -> None:
     """A complete temporary file is linked atomically; an existing destination is never replaced."""
     path = Path(path)
-    raw = canonical_json(value)
     if path.exists() or path.is_symlink():
         raise FileExistsError("output_exists")
     with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".chan-", delete=False) as stream:

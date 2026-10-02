@@ -64,6 +64,31 @@ class ChanReplayTests(unittest.TestCase):
         self.assertTrue(withdrawn["observations"][1]["overlapping_episode"])
         self.assertEqual([e["type"] for e in withdrawn["events"]], ["candidate", "withdrawn", "candidate"])
 
+    def test_missing_final_session_records_unavailable_without_inventing_prices(self):
+        bars = controlled_bars(35)
+        issue = {"code": "missing_session", "symbol": "600519", "period": "daily",
+                 "scope": "bar", "bar_key": "2026-02-05"}
+        before = self.run_replay(bars, controlled_analyzer(), [issue], "2026-02-05T14:59:59+08:00")
+        after = self.run_replay(bars, controlled_analyzer(), [issue], "2026-02-05T15:00:00+08:00")
+        self.assertEqual([e["type"] for e in before["events"]], ["candidate"])
+        self.assertEqual([e["type"] for e in after["events"]], ["candidate", "data_unavailable"])
+        self.assertEqual(after["events"][-1]["at"], "2026-02-05T15:00:00+08:00")
+        self.assertFalse(after["frames"][-1]["boundary_tracking_eligible"])
+        self.assertEqual(after["frames"][-1]["bar_count"], 35)
+        self.assertEqual(after["observations"], before["observations"])
+        self.assertEqual(after["frames"][:-1], before["frames"])
+
+    def test_internal_missing_session_is_not_silently_skipped(self):
+        bars = controlled_bars(37)
+        bars.pop(35)
+        issue = {"code": "invalid_ohlc", "symbol": "600519", "period": "daily",
+                 "scope": "bar", "bar_key": "2026-02-05"}
+        result = self.run_replay(bars, controlled_analyzer(), [issue])
+        self.assertEqual([f["at"][:10] for f in result["frames"]],
+                         ["2026-02-04", "2026-02-05", "2026-02-06"])
+        self.assertEqual(result["events"][-1]["at"][:10], "2026-02-05")
+        self.assertEqual(len(result["observations"]), 1)
+
     def test_withdrawn_observation_keeps_tracking_frozen_invalidation(self):
         bars = controlled_bars(38)
         bars[-1] = daily_bar(bars[-1]["trade_date"], 12)

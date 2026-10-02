@@ -11,10 +11,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from services.api.app.chan_baseline import MODEL_VERSION, RULE_CONFIG, analyze_frame, baseline_fingerprint
 from services.api.app.chan_dataset import (
-    canonical_json, canonical_symbol, load_dataset, read_json, save_dataset, write_json_exclusive,
+    canonical_json, canonical_symbol, load_dataset, read_json, save_dataset, write_bytes_exclusive, write_json_exclusive,
 )
 from services.api.app.chan_outcomes import evaluate_observations
+from services.api.app.chan_quality import dataset_quality
 from services.api.app.chan_replay import replay_symbol
+from services.api.app.chan_report import render_report
 from services.api.app.market_time import local_timestamp
 
 
@@ -34,13 +36,15 @@ def _parser():
     capture.add_argument("--calendar", type=Path)
     capture.add_argument("--page-size", type=int, default=1000)
     capture.add_argument("--max-pages", type=int, default=1)
-    for command in ("replay", "frame"):
+    for command in ("replay", "frame", "report"):
         sub = commands.add_parser(command, help="Read a fixed dataset without network or database access")
         sub.add_argument("--dataset", type=Path, required=True)
         sub.add_argument("--as-of", required=True)
         sub.add_argument("--output", type=Path, required=True)
         if command == "frame":
             sub.add_argument("--symbol", required=True)
+        if command == "report":
+            sub.add_argument("--language", choices=("zh", "en"), default="zh")
     return parser
 
 
@@ -53,10 +57,11 @@ def _manifest(dataset, as_of):
 def _replay(dataset, as_of):
     report = {"schema_version": "chan_replay_v1", **_manifest(dataset, as_of),
               "frames": [], "observations": [], "events": [], "issues": []}
-    for symbol in dataset["selection"]["symbols"]:
+    report["data_quality"] = dataset_quality(dataset, as_of)
+    for quality in report["data_quality"]["items"]:
+        symbol = quality["symbol"]
         daily = dataset["series"][symbol].get("daily", {"bars": [], "issues": []})
-        issues = daily["issues"] + [i for i in dataset["issues"] if i["symbol"] == symbol and i["period"] == "daily" and i not in daily["issues"]]
-        result = replay_symbol(symbol=symbol, bars=daily["bars"], as_of=as_of, quality_issues=issues)
+        result = replay_symbol(symbol=symbol, bars=daily["bars"], as_of=as_of, quality_issues=quality["issues"])
         for key in ("frames", "observations", "events"):
             report[key].extend(result[key])
         report["issues"].extend({"symbol": symbol, "code": issue} for issue in result["issues"])
@@ -70,12 +75,11 @@ def _frame(dataset, symbol, as_of):
     if symbol not in dataset["selection"]["symbols"]:
         raise ValueError("symbol_not_selected")
     daily = dataset["series"][symbol].get("daily", {"bars": [], "issues": []})
-    all_issues = daily["issues"] + [i for i in dataset["issues"] if i["symbol"] == symbol and i["period"] == "daily"]
-    visible_issues = [i for i in all_issues if i["code"] != "truncated" and (
-        i["scope"] == "series" or i["bar_key"][:10] + "T15:00:00+08:00" <= as_of)]
+    quality = dataset_quality(dataset, as_of, [symbol])
+    visible_issues = [i for i in quality["items"][0]["issues"] if i["code"] != "truncated"]
     analysis = analyze_frame(symbol=symbol, bars=daily["bars"], as_of=as_of)
     return {"schema_version": "chan_frame_v1", **_manifest(dataset, as_of), "analysis": analysis,
-            "external_issues": visible_issues,
+            "external_issues": visible_issues, "data_quality": quality,
             "eligible_for_observation": not visible_issues and analysis["data_quality"]["status"] == "complete"}
 
 
@@ -95,8 +99,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.output.exists() or args.output.is_symlink():
             raise FileExistsError("output_exists")
         dataset = load_dataset(args.dataset)
-        report = _replay(dataset, as_of) if args.command == "replay" else _frame(dataset, args.symbol, as_of)
-        write_json_exclusive(args.output, report)
+        report = _frame(dataset, args.symbol, as_of) if args.command == "frame" else _replay(dataset, as_of)
+        if args.command == "report":
+            write_bytes_exclusive(args.output, render_report(dataset, report, language=args.language).encode("utf-8"))
+        else:
+            write_json_exclusive(args.output, report)
         print(canonical_json({"status": "written", "path": str(args.output), "dataset_id": dataset["dataset_id"]}).decode())
         return 0
     except SystemExit as exc:
